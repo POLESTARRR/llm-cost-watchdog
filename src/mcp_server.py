@@ -1,0 +1,158 @@
+"""
+MCP server exposing the watchdog over stdio, for local Claude Desktop use.
+
+Run directly:  python -m src.mcp_server
+"""
+
+from mcp.server.mcpserver import MCPServer
+
+from src.analyzer import check_budget_status as _check_budget_status
+from src.analyzer import compute_report
+from src.analyzer import flag_anomalies as _flag_anomalies
+from src.analyzer import project_burn_rate as _project_burn_rate
+from src.analyzer import provider_breakdown as _provider_breakdown
+from src.analyzer import what_if_switched as _what_if_switched
+from src.pricing import PRICING_TABLE, compare_models
+from src.providers import configured_providers, infer_provider
+from src.tracker import log_usage
+from src.usage_schema import UsageEvent
+
+server = MCPServer(
+    name="llm-cost-watchdog",
+    instructions=(
+        "Tracks LLM API cost, tokens, latency, and prompt-cache usage across "
+        "Anthropic, OpenAI, and Google. Use these tools to report spend, check "
+        "budget and burn rate, surface anomalous calls, compare model pricing, "
+        "and log calls made outside the tracked wrapper."
+    ),
+)
+
+_VALID_PERIODS = {"today", "week", "month", "all_time"}
+
+
+def _bad_period(period: str) -> dict:
+    return {"error": f"invalid period {period!r}; expected one of {sorted(_VALID_PERIODS)}"}
+
+
+@server.tool(
+    description="Get an LLM cost report for a period. period: 'today' | 'week' | 'month' | "
+                "'all_time'. Returns total cost, call count, failures, prompt-cache savings, "
+                "and breakdowns by model, project, and provider."
+)
+def get_cost_report(period: str = "week") -> dict:
+    if period not in _VALID_PERIODS:
+        return _bad_period(period)
+    return compute_report(period).model_dump()
+
+
+@server.tool(
+    description="Check current spend against the configured weekly budget. Returns status "
+                "('under' | 'near' | 'over'), percent used, and remaining USD."
+)
+def check_budget_status() -> dict:
+    return _check_budget_status("weekly")
+
+
+@server.tool(
+    description="Project whether current spend will exceed the budget. Returns daily burn rate, "
+                "projected weekly total, the date the budget runs out, and a confidence level "
+                "based on how much data the projection rests on."
+)
+def get_burn_rate(period: str = "week") -> dict:
+    if period not in _VALID_PERIODS:
+        return _bad_period(period)
+    return _project_burn_rate(period)
+
+
+@server.tool(
+    description="Find calls that were unusually expensive or slow compared to the trailing "
+                "20-call rolling average for the same model. Returns each flagged call with a reason."
+)
+def flag_anomalies(threshold_multiplier: float = 3.0) -> list[dict]:
+    return [a.model_dump() for a in _flag_anomalies(threshold_multiplier)]
+
+
+@server.tool(
+    description="Break spend down by provider (anthropic / openai / google): cost, call volume, "
+                "tokens, prompt-cache hit rate, average latency, and which models were used."
+)
+def get_provider_breakdown(period: str = "week") -> list[dict]:
+    if period not in _VALID_PERIODS:
+        return [_bad_period(period)]
+    return _provider_breakdown(period)
+
+
+@server.tool(
+    description="Estimate and compare what a call of a given size would cost across models, "
+                "cheapest first. Makes no API calls — pure pricing arithmetic. Optionally pass "
+                "a list of model IDs to restrict the comparison."
+)
+def compare_model_costs(
+    input_tokens: int,
+    output_tokens: int,
+    models: list[str] | None = None,
+) -> list[dict]:
+    unknown = [m for m in (models or []) if m not in PRICING_TABLE]
+    rows = compare_models(input_tokens, output_tokens, models)
+    if unknown:
+        rows.append({"warning": f"not in pricing table, priced at fallback rates: {unknown}"})
+    return rows
+
+
+@server.tool(
+    description="Re-price this period's real traffic for one model as if it had run on another. "
+                "Answers 'should I switch models?' using your own token counts rather than a benchmark."
+)
+def what_if_switched(from_model: str, to_model: str, period: str = "week") -> dict:
+    if period not in _VALID_PERIODS:
+        return _bad_period(period)
+    return _what_if_switched(from_model, to_model, period)
+
+
+@server.tool(
+    description="List which LLM providers are configured with credentials, and which models "
+                "the watchdog knows how to price."
+)
+def list_providers() -> dict:
+    grouped: dict[str, list[str]] = {}
+    for model in PRICING_TABLE:
+        try:
+            grouped.setdefault(infer_provider(model), []).append(model)
+        except Exception:
+            grouped.setdefault("unknown", []).append(model)
+    return {"configured": configured_providers(), "priced_models_by_provider": grouped}
+
+
+@server.tool(
+    description="Log an LLM call made outside the tracked call_llm() wrapper — e.g. one made "
+                "through a web UI or another tool. Provider is inferred from the model ID."
+)
+def log_manual_entry(
+    model: str,
+    cost_usd: float,
+    tokens: int,
+    project_tag: str,
+    note: str = "",
+) -> str:
+    try:
+        provider = infer_provider(model)
+    except Exception:
+        provider = "unknown"
+
+    event = UsageEvent(
+        model=model,
+        provider=provider,
+        project_tag=project_tag,
+        input_tokens=0,
+        output_tokens=tokens,
+        cost_usd=cost_usd,
+        latency_ms=0.0,
+        prompt_preview=UsageEvent.make_preview(note or "manual entry"),
+        success=True,
+    )
+    log_usage(event)
+    return "✓ logged"
+
+
+if __name__ == "__main__":
+    server.run(transport="stdio")
