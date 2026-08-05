@@ -36,6 +36,18 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr(utils.time, "sleep", lambda _s: None)
 
 
+@pytest.fixture(autouse=True)
+def _no_fallback(monkeypatch):
+    """Isolate retry behavior from cross-provider fallback. Tests that want
+    fallback opt back in via the `fallback_on` fixture."""
+    monkeypatch.setenv("WATCHDOG_FALLBACK", "off")
+
+
+@pytest.fixture
+def fallback_on(monkeypatch):
+    monkeypatch.setenv("WATCHDOG_FALLBACK", "on")
+
+
 def _install(monkeypatch, provider):
     monkeypatch.setattr(utils, "get_provider", lambda model: provider)
 
@@ -170,3 +182,82 @@ def test_backoff_grows_and_is_capped():
     ceilings = [max(utils._backoff_delay(i) for _ in range(200)) for i in range(3)]
     assert ceilings[0] < ceilings[1] < ceilings[2]
     assert all(d <= utils.MAX_BACKOFF_SECONDS for d in ceilings)
+
+
+# --- cross-provider fallback --------------------------------------------
+
+
+def test_falls_over_to_another_provider_when_rate_limited(
+    temp_db, monkeypatch, fallback_on
+):
+    """A 429 on one provider should not fail the call when another provider
+    has credentials — that is the whole point of tracking three of them."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    primary = _FakeProvider(fail_times=99, fail_with=RateLimitError("429"))
+    backup = _FakeProvider(response=LLMResponse(text="from backup", input_tokens=10, output_tokens=5))
+
+    def route(model):
+        return primary if model.startswith("claude") else backup
+
+    monkeypatch.setattr(utils, "get_provider", route)
+
+    assert utils.call_llm("hi", model="claude-opus-5", max_retries=0) == "from backup"
+    assert backup.calls == 1
+
+
+def test_fallback_records_both_the_failure_and_the_success(
+    temp_db, monkeypatch, fallback_on
+):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    primary = _FakeProvider(fail_times=99, fail_with=RateLimitError("429"))
+    backup = _FakeProvider()
+    monkeypatch.setattr(
+        utils, "get_provider", lambda m: primary if m.startswith("claude") else backup
+    )
+
+    utils.call_llm("hi", model="claude-opus-5", max_retries=0)
+
+    events = get_events(db_path=temp_db)
+    assert [e.success for e in events] == [False, True]
+    assert events[0].provider == "anthropic"    # the one that was exhausted
+    assert events[1].provider == "google"       # the one that answered
+
+
+def test_no_fallback_on_non_rate_limit_errors(temp_db, monkeypatch, fallback_on):
+    """A 400 fails the same way everywhere — retrying elsewhere just burns
+    another call."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    primary = _FakeProvider(fail_times=99, fail_with=ValueError("bad request"))
+    backup = _FakeProvider()
+    monkeypatch.setattr(
+        utils, "get_provider", lambda m: primary if m.startswith("claude") else backup
+    )
+
+    with pytest.raises(ValueError):
+        utils.call_llm("hi", model="claude-opus-5", max_retries=0)
+    assert backup.calls == 0
+
+
+def test_fallback_can_be_disabled(temp_db, monkeypatch):
+    monkeypatch.setenv("WATCHDOG_FALLBACK", "off")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    primary = _FakeProvider(fail_times=99, fail_with=RateLimitError("429"))
+    backup = _FakeProvider()
+    monkeypatch.setattr(
+        utils, "get_provider", lambda m: primary if m.startswith("claude") else backup
+    )
+
+    with pytest.raises(RateLimitError):
+        utils.call_llm("hi", model="claude-opus-5", max_retries=0)
+    assert backup.calls == 0
+
+
+def test_fallback_candidates_exclude_the_failing_provider(monkeypatch, fallback_on):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    candidates = utils._fallback_candidates(exclude_provider="anthropic")
+    assert "claude-haiku-4-5" not in candidates      # same provider that failed
+    assert "gemini-flash-lite-latest" in candidates  # configured, different provider
+    assert "gpt-5-nano" not in candidates            # no credentials

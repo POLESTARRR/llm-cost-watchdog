@@ -145,6 +145,22 @@
   }
   .sev { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--status-critical); font-weight: 700; }
   .empty { color: var(--text-muted); font-style: italic; padding: .8rem; }
+
+  .action {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-left: 3px solid var(--status-warning);
+    border-radius: 8px; padding: .7rem .9rem; margin-bottom: .6rem;
+  }
+  .action .top { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+  .action .what { font-size: .89rem; font-weight: 500; }
+  .action .save { font-size: .89rem; font-variant-numeric: tabular-nums; color: var(--status-warning); white-space: nowrap; }
+  .action .why { color: var(--text-muted); font-size: .79rem; margin-top: .25rem; }
+  .headline {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-left: 3px solid var(--status-good);
+    border-radius: 8px; padding: .7rem .9rem; margin-bottom: .9rem; font-size: .9rem;
+  }
+  .headline b { color: var(--status-good); }
 </style>
 </head>
 <body>
@@ -184,6 +200,11 @@
       <div class="note" id="burn-note"></div>
     </div>
     <div class="kpi">
+      <div class="label">Recoverable</div>
+      <div class="value" id="waste-total">—</div>
+      <div class="note" id="waste-note"></div>
+    </div>
+    <div class="kpi">
       <div class="label">Saved by caching</div>
       <div class="value" id="cache-saved">—</div>
       <div class="note" id="cache-note"></div>
@@ -213,6 +234,11 @@
         <tbody id="by-project"></tbody>
       </table>
     </div>
+  </section>
+
+  <section>
+    <h2>Where the money is going to waste</h2>
+    <div id="waste-panel"></div>
   </section>
 
   <section>
@@ -296,15 +322,48 @@ function renderRows(tbodyId, obj, providerOf) {
     : `<tr><td colspan="${cols}" class="empty">No data for this period</td></tr>`;
 }
 
+function renderWaste(w) {
+  const el = $("waste-panel");
+  const items = [];
+
+  for (const c of w.cache_opportunities.slice(0, 3)) {
+    items.push({ save: c.estimated_saving_usd, what: c.action,
+      why: `${c.calls} calls, ${c.total_input_tokens.toLocaleString()} input tokens, ${(c.cache_hit_rate*100).toFixed(0)}% currently cached` });
+  }
+  for (const d of w.duplicate_calls.slice(0, 3)) {
+    items.push({ save: d.avoidable_cost_usd,
+      what: `Dedupe or cache a prompt sent ${d.times_sent}x to ${d.model}`,
+      why: esc(d.prompt_preview) });
+  }
+  for (const o of w.overpowered_calls.slice(0, 3)) {
+    items.push({ save: o.estimated_saving_usd,
+      what: `Try ${o.suggested_model} instead of ${o.model} for ${o.project_tag}`,
+      why: esc(o.basis) });
+  }
+  items.sort((a, b) => b.save - a.save);
+
+  const r = w.retry_waste;
+  const retryLine = r.failed_calls
+    ? `<div class="action"><div class="top"><div class="what">${r.failed_calls} failed call${r.failed_calls===1?"":"s"} (${(r.failure_rate*100).toFixed(1)}% of traffic)</div><div class="save">${r.wasted_seconds}s lost</div></div><div class="why">${esc(r.recommendation)}</div></div>`
+    : "";
+
+  el.innerHTML =
+    `<div class="headline">Top action: <b>${esc(w.top_action)}</b></div>` +
+    items.map(i => `<div class="action"><div class="top"><div class="what">${esc(i.what)}</div><div class="save">~${usd2(i.save)}</div></div><div class="why">${i.why}</div></div>`).join("") +
+    retryLine +
+    (items.length || r.failed_calls ? "" : `<div class="empty">No waste detected in this period.</div>`);
+}
+
 async function load() {
   const period = $("period").value;
-  const [report, budget, burn, providers, anomalies, calls] = await Promise.all([
+  const [report, budget, burn, providers, anomalies, calls, waste] = await Promise.all([
     getJSON(`/report?period=${period}`),
     getJSON("/budget"),
     getJSON(`/burn-rate?period=${period}`),
     getJSON(`/providers?period=${period}`),
     getJSON("/anomalies"),
     getJSON(`/calls?period=${period}&limit=30`),
+    getJSON(`/waste?period=${period}`),
   ]);
 
   const configured = Object.entries(providers.configured).filter(([, v]) => v).map(([k]) => k);
@@ -330,6 +389,12 @@ async function load() {
   $("burn-note").textContent = burn.confidence === "none"
     ? "no activity to project from"
     : `${usd2(burn.daily_burn_usd)}/day · ${burn.on_track ? "on track" : "over budget"} · ${burn.confidence} confidence`;
+
+  $("waste-total").textContent = usd2(waste.recoverable_usd);
+  $("waste-note").textContent = waste.recoverable_usd > 0
+    ? `up to ${waste.recoverable_percent}% of spend · upper bound`
+    : "nothing obviously recoverable";
+  renderWaste(waste);
 
   $("cache-saved").textContent = usd2(report.cache_savings_usd);
   const totalWithout = report.total_cost_usd + report.cache_savings_usd;

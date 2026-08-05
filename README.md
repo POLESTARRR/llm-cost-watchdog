@@ -30,8 +30,8 @@ This project models all of that. One wrapper function, `call_llm()`, records cos
             └───────────────────┬────────────────────────┘
                                 ▼
                     src/utils.py :: call_llm()
-     infers provider from model ID · measures latency · retries 429s
-      with jittered backoff · prices via pricing.py · logs EVERY call
+   guardrails (can BLOCK) · infers provider from model ID · retries 429s with
+   backoff · falls over to another provider · prices it · logs EVERY call
                                 │
               ┌─────────────────┼─────────────────┐
               ▼                 ▼                 ▼
@@ -44,13 +44,13 @@ This project models all of that. One wrapper function, `call_llm()`, records cos
                  src/tracker.py ──►  data/usage.db  (SQLite)
                                 │     one row per call
                                 ▼
-                         src/analyzer.py
-     reports · anomalies · budget · burn rate · provider breakdown · what-if
+              src/analyzer.py · guard.py · waste.py
+   reports · anomalies · budget · burn rate · guardrails · waste finding
                                 │
             ┌───────────────────┼───────────────────┐
             ▼                   ▼                   ▼
      src/digest.py       src/mcp_server.py    dashboard/app.py
-   weekly agentic loop     9 tools, stdio      FastAPI + static HTML
+   weekly agentic loop    11 tools, stdio      FastAPI + static HTML
                           → Claude Desktop     → localhost:8000
 ```
 
@@ -173,7 +173,77 @@ Tag each project distinctly and the cost breakdown tells you which of your proje
 
 ---
 
-## 6. MCP tools reference
+## 6. Guardrails — the part that stops spend
+
+Everything else in this project is read-only history. Guardrails are the one
+piece that intervenes, because knowing what a runaway agent loop cost you is
+much worse than having it stopped at call 40.
+
+Three independent protections, set via `.env`:
+
+| Guard | Catches | Setting |
+|---|---|---|
+| **Weekly budget** | steady overspend | `WEEKLY_BUDGET_USD` |
+| **Per-project cap** | one project eating the whole budget | `WATCHDOG_PROJECT_CAPS=proj:2.00` |
+| **Circuit breaker** | a loop with no exit condition | `WATCHDOG_MAX_CALLS_PER_MIN` |
+| **Per-call ceiling** | one implausibly huge prompt | `WATCHDOG_MAX_COST_PER_CALL` |
+
+```bash
+WATCHDOG_GUARD_MODE=warn    # off | warn | block
+```
+
+**Default is `warn`, deliberately.** A tracking wrapper that silently starts
+refusing calls is worse than the problem it solves — you opt into `block`.
+In `block` mode, `call_llm()` raises `BudgetExceededError` *before* the
+request goes out.
+
+The circuit breaker exists for one specific scenario: an agent loop with no
+exit condition, discovered the next morning. **Call rate is the early signal**
+— on cheap models, cost lags far behind volume, so a budget check alone would
+not catch it until thousands of calls in.
+
+### Provider fallback
+
+With credentials for more than one provider, a 429 shouldn't fail the call —
+it should fail *over*:
+
+```bash
+WATCHDOG_FALLBACK=on        # default
+```
+
+When the requested provider is rate-limited, `call_llm()` retries it with
+backoff, then routes to a cheap model on a *different* configured provider.
+Both the failure and the eventual success are logged, so the fallback shows up
+in your cost history rather than hiding. Only rate limits trigger it — a 400
+fails identically everywhere, so retrying elsewhere just burns another call.
+
+---
+
+## 7. Finding waste
+
+`find_waste` answers the question a cost report can't: **which of this spend
+was avoidable?** Four checks, all computed from data already in SQLite — no
+API calls, free to run:
+
+| Check | Finds |
+|---|---|
+| **Retry waste** | Failed calls, the time they burned, and whether the failure rate is transient or structural |
+| **Duplicate calls** | The same prompt sent repeatedly — a missing cache or a loop re-asking |
+| **Cache opportunities** | Repeated large prompts never served from cache, priced at the model's real cached rate |
+| **Over-powered calls** | A frontier model doing trivial-length work, with a costed alternative |
+
+On this repo's own sample data it reports **24.5% of spend as recoverable**,
+with the top action spelled out: *"Enable prompt caching for
+cost-watchdog-self's claude-sonnet-5 calls (~$0.0936 this period)."*
+
+**The total is an upper bound, not a sum.** The categories overlap — a
+duplicated call is also a cache opportunity — so naively adding them can
+exceed 100% of spend (this actually happened: 114%). It is capped at actual
+spend and reported with per-category detail alongside.
+
+---
+
+## 8. MCP tools reference
 
 | Tool | Arguments | Returns |
 |---|---|---|
@@ -184,6 +254,8 @@ Tag each project distinctly and the cost breakdown tells you which of your proje
 | `get_provider_breakdown` | `period` | Per-provider cost, calls, tokens, cache hit rate, avg latency, models used |
 | `compare_model_costs` | `input_tokens`, `output_tokens`, `models?` | What one call would cost on each model, cheapest first. No API calls made |
 | `what_if_switched` | `from_model`, `to_model`, `period` | Re-prices your real traffic on another model |
+| `find_waste` | `period` | Retry waste, duplicate prompts, missed caching, over-powered models — each with a concrete action |
+| `check_guard_status` | none | Guard mode, budget headroom, call-rate vs. the circuit breaker, per-project caps |
 | `list_providers` | none | Which providers have credentials; which models are priced |
 | `log_manual_entry` | `model`, `cost_usd`, `tokens`, `project_tag`, `note` | `"✓ logged"` |
 
@@ -211,13 +283,13 @@ Example exchanges in Claude Desktop:
 
 ---
 
-## 7. Why this runs locally, not deployed
+## 9. Why this runs locally, not deployed
 
 This is a personal MCP server, and running it locally over stdio is the standard, correct way to run one — not a limitation. Claude Desktop launches the process directly; there is no network hop, no hosting bill, and no reason for your personal spend data to leave your machine. The SQLite database and generated reports are gitignored for the same reason. The Docker setup exists to make the *dashboard* trivially demoable, not because the system needs a server. Total hosting cost: $0, by design.
 
 ---
 
-## 8. Tech stack
+## 10. Tech stack
 
 - **Provider SDKs** — `anthropic`, `openai`, `google-generativeai`. Each behind an adapter implementing one `Provider` protocol, so the rest of the codebase is vendor-agnostic.
 - **SQLite** — structured, numeric, time-series data. A vector DB would be the wrong tool: there is nothing here to search semantically. Schema changes migrate **in place** rather than recreating, because a cost tracker that drops your history on upgrade has destroyed the only thing it exists to keep.
@@ -230,9 +302,9 @@ This is a personal MCP server, and running it locally over stdio is the standard
 
 ---
 
-## 9. Eval results
+## 11. Eval results
 
-`pytest tests/ -q` → **179 passed**.
+`pytest tests/ -q` → **220 passed**.
 
 | Suite | Tests | Covers |
 |---|---:|---|
@@ -240,8 +312,10 @@ This is a personal MCP server, and running it locally over stdio is the standard
 | `test_analyzer.py` | 29 | Anomaly accuracy, budget boundaries, burn rate, provider breakdown, what-if, digest |
 | `test_providers.py` | 21 | Model→provider routing, credential detection, per-vendor usage normalization |
 | `test_dashboard_api.py` | 20 | All 8 endpoints, response shapes, invalid input, privacy cap |
-| `test_call_llm.py` | 17 | Retry/backoff, failure tracking, cost correctness, rate-limit detection |
+| `test_call_llm.py` | 22 | Retry/backoff, **cross-provider fallback**, failure tracking, cost correctness |
 | `test_tracker.py` | 10 | Persistence, **in-place migration from the v1 schema**, batch load |
+| `test_guard.py` | 18 | Guard modes, budget/project/rate/per-call trips, fail-safe on bad config |
+| `test_waste.py` | 18 | All four waste checks, plus the overlap cap that stops >100% claims |
 
 **Anomaly detection** — against `sample_usage.json` (44 synthetic events, 6 models, 3 providers, 3 planted spikes):
 
@@ -263,7 +337,7 @@ Detection is also verified against controlled fixtures: a 5× cost spike and an 
 
 ---
 
-## 10. The agentic digest loop
+## 12. The agentic digest loop
 
 `src/digest.py :: generate_digest()` runs weekly and:
 

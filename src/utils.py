@@ -17,8 +17,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from src.guard import enforce
 from src.pricing import DEFAULT_MODEL, calculate_cost
-from src.providers import ProviderError, get_provider, infer_provider
+from src.providers import ProviderError, configured_providers, get_provider, infer_provider
 from src.tracker import log_usage
 from src.usage_schema import UsageEvent
 
@@ -38,6 +39,36 @@ logger = logging.getLogger("llm-cost-watchdog")
 MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "3"))
 BASE_BACKOFF_SECONDS = 1.0
 MAX_BACKOFF_SECONDS = 30.0
+
+# When the requested provider is rate-limited and you have credentials for
+# another one, failing the call outright is a choice — and the wrong one.
+# These are the cheap, broadly-available substitutes to fall back to, in
+# order. Set WATCHDOG_FALLBACK=off to disable.
+FALLBACK_MODELS = [
+    "gemini-flash-lite-latest",   # google
+    "claude-haiku-4-5",           # anthropic
+    "gpt-5-nano",                 # openai
+]
+
+
+def _fallback_enabled() -> bool:
+    return os.environ.get("WATCHDOG_FALLBACK", "on").strip().lower() != "off"
+
+
+def _fallback_candidates(exclude_provider: str) -> list[str]:
+    """Configured models from providers other than the one that just failed."""
+    if not _fallback_enabled():
+        return []
+    configured = configured_providers()
+    out = []
+    for model in FALLBACK_MODELS:
+        try:
+            provider = infer_provider(model)
+        except ProviderError:
+            continue
+        if provider != exclude_provider and configured.get(provider):
+            out.append(model)
+    return out
 
 
 def _is_rate_limit(exc: Exception) -> bool:
@@ -66,6 +97,7 @@ def call_llm(
     model: str = DEFAULT_MODEL,
     project_tag: str = "default",
     max_retries: int | None = None,
+    skip_guards: bool = False,
 ) -> str:
     """Call any supported LLM, track the call, and return the response text.
 
@@ -80,10 +112,59 @@ def call_llm(
     itself a cost signal.
     """
     retries = MAX_RETRIES if max_retries is None else max_retries
+
+    # Pre-flight guardrails. In `block` mode this raises BudgetExceededError
+    # before any request goes out — the one place this project stops spend
+    # rather than reporting it. `skip_guards` lets the digest still report on
+    # a session that has already tripped a limit.
+    if not skip_guards:
+        enforce(
+            project_tag=project_tag,
+            model=model,
+            # ~4 chars/token is rough, but it only needs to catch a call that
+            # is orders of magnitude too big, not price it precisely.
+            estimated_input_tokens=len(prompt) // 4,
+        )
+
+    try:
+        return _attempt_model(prompt, temperature, model, project_tag, retries)
+    except Exception as exc:
+        # Only a rate limit / exhausted quota is worth failing over. A 400 or
+        # an auth error will fail identically on every provider, so retrying
+        # elsewhere just burns another call.
+        if not _is_rate_limit(exc):
+            raise
+
+        candidates = _fallback_candidates(exclude_provider=_safe_infer(model))
+        if not candidates:
+            raise
+
+        for alt in candidates:
+            logger.warning(
+                "call_llm falling back | %s exhausted, trying %s instead", model, alt
+            )
+            try:
+                return _attempt_model(prompt, temperature, alt, project_tag, retries=0)
+            except Exception as alt_exc:
+                if not _is_rate_limit(alt_exc):
+                    raise
+                continue
+
+        logger.error("call_llm: every provider exhausted (tried %s)", [model, *candidates])
+        raise
+
+
+def _attempt_model(
+    prompt: str,
+    temperature: float,
+    model: str,
+    project_tag: str,
+    retries: int,
+) -> str:
+    """Try one model, retrying that model on rate limits. Logs every attempt."""
     provider_name = _safe_infer(model)
     provider = get_provider(model)
     prompt_preview = UsageEvent.make_preview(prompt)
-
     last_exc: Exception | None = None
 
     for attempt in range(retries + 1):
@@ -141,8 +222,7 @@ def call_llm(
                 )
             )
 
-            retryable = _is_rate_limit(exc) and attempt < retries
-            if not retryable:
+            if not (_is_rate_limit(exc) and attempt < retries):
                 logger.error(
                     "call_llm failed | %s/%s project=%s latency=%.0fms error=%s",
                     provider_name, model, project_tag, latency_ms, str(exc)[:200],

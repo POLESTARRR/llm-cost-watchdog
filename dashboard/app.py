@@ -20,7 +20,9 @@ from src.analyzer import (
     project_burn_rate,
     provider_breakdown,
 )
+from src.guard import guard_status
 from src.pricing import compare_models
+from src.waste import find_waste
 from src.providers import configured_providers
 from src.tracker import get_events_for_period
 
@@ -63,6 +65,16 @@ def providers(period: str = Query("week", pattern=PERIOD_RE)) -> dict:
 @app.get("/compare")
 def compare(input_tokens: int = 5000, output_tokens: int = 1000) -> list[dict]:
     return compare_models(input_tokens, output_tokens)
+
+
+@app.get("/waste")
+def waste(period: str = Query("week", pattern=PERIOD_RE)) -> dict:
+    return find_waste(period)
+
+
+@app.get("/guard")
+def guard() -> dict:
+    return guard_status()
 
 
 @app.get("/calls")
