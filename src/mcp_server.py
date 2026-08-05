@@ -12,8 +12,10 @@ from src.analyzer import flag_anomalies as _flag_anomalies
 from src.analyzer import project_burn_rate as _project_burn_rate
 from src.analyzer import provider_breakdown as _provider_breakdown
 from src.analyzer import what_if_switched as _what_if_switched
+from src.guard import guard_status as _guard_status
 from src.pricing import PRICING_TABLE, compare_models
 from src.providers import configured_providers, infer_provider
+from src.waste import find_waste as _find_waste
 from src.tracker import log_usage
 from src.usage_schema import UsageEvent
 
@@ -121,6 +123,26 @@ def list_providers() -> dict:
         except Exception:
             grouped.setdefault("unknown", []).append(model)
     return {"configured": configured_providers(), "priced_models_by_provider": grouped}
+
+
+@server.tool(
+    description="Find spend that bought you nothing or could be stopped: failed-call waste, "
+                "duplicate prompts, missed prompt-caching opportunities, and frontier models "
+                "doing trivial work. Each finding ends in a concrete action."
+)
+def find_waste(period: str = "week") -> dict:
+    if period not in _VALID_PERIODS:
+        return _bad_period(period)
+    return _find_waste(period)
+
+
+@server.tool(
+    description="Check the spend guardrails: current mode (off/warn/block), how much budget "
+                "headroom is left, call-rate against the runaway-loop circuit breaker, and any "
+                "per-project caps. Use this to ask 'how much runway do I have?' before being blocked."
+)
+def check_guard_status() -> dict:
+    return _guard_status()
 
 
 @server.tool(
