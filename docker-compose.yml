@@ -1,0 +1,16 @@
+services:
+  dashboard:
+    build: .
+    ports:
+      # Override with DASHBOARD_PORT=8001 if 8000 is already taken on your host.
+      - "${DASHBOARD_PORT:-8000}:8000"
+    environment:
+      # Budget is read at request time; the API key isn't needed by the
+      # dashboard (it only reads the DB), but is passed through so the
+      # container can also run scripts/weekly_digest.py if you exec into it.
+      - WEEKLY_BUDGET_USD=${WEEKLY_BUDGET_USD:-5.00}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      # Persist the usage DB and reports on the host so container restarts
+      # don't lose tracked history.
+      - ./data:/app/data
