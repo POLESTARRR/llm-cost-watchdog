@@ -88,6 +88,35 @@
     padding: .4rem .55rem; font-size: .88rem;
   }
 
+  /* --- Provenance banner: says out loud when the headline number is not
+         real money. Warning-tinted rather than critical — seeded data is a
+         normal state for a demo, it just must never pass as billed spend. --- */
+  .provenance {
+    display: none;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--status-warning);
+    border-radius: 8px;
+    padding: .7rem .9rem;
+    margin-bottom: 1.1rem;
+    font-size: .88rem;
+    color: var(--text-secondary);
+  }
+  .provenance.show { display: block; }
+  .provenance b { color: var(--text-primary); }
+  .provenance .why { color: var(--text-muted); font-size: .82rem; margin-top: .25rem; }
+
+  /* Provenance badge. Carries a text label, never color alone. */
+  .src {
+    display: inline-block; font-size: .68rem; line-height: 1.5;
+    padding: 0 .38rem; border-radius: 4px; border: 1px solid var(--border);
+    color: var(--text-secondary); background: var(--surface-0);
+    text-transform: uppercase; letter-spacing: .03em;
+  }
+  .src-demo   { border-color: var(--status-warning); color: var(--status-warning); }
+  .src-manual { border-color: var(--text-muted); }
+  .src-live   { border-color: var(--status-good); color: var(--status-good); }
+
   /* --- KPI row: hero numbers, not charts --- */
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .9rem; }
   .kpi {
@@ -179,8 +208,17 @@
       <option value="month">Last 30 days</option>
       <option value="all_time">All time</option>
     </select>
+    <label for="source">Data</label>
+    <select id="source">
+      <option value="all" selected>All rows</option>
+      <option value="live,manual">Billed only</option>
+      <option value="live">Live calls only</option>
+      <option value="demo">Demo data only</option>
+    </select>
     <span id="provider-status" class="sub"></span>
   </div>
+
+  <div class="provenance" id="provenance"></div>
 
   <div class="kpis">
     <div class="kpi">
@@ -251,7 +289,7 @@
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>Time</th><th>Model</th><th>Project</th>
+          <th>Time</th><th>Source</th><th>Model</th><th>Project</th>
           <th class="num">Tokens</th><th class="num">Cached</th>
           <th class="num">Cost</th><th class="num">Latency</th><th>Prompt</th>
         </tr></thead>
@@ -304,6 +342,7 @@ function renderProviderBars(rows) {
       </div>
       <div class="bar-meta">
         ${r.calls} calls${r.failed_calls ? ` · <span class="failed">${r.failed_calls} failed</span>` : ""}
+        · ${r.live_calls ? `${r.live_calls} live` : `<span class="src src-demo">no live calls</span>`}
         · ${(r.cache_hit_rate * 100).toFixed(1)}% cache hit
         · ${Math.round(r.avg_latency_ms)}ms avg
         · ${esc(r.models_used.join(", "))}
@@ -354,17 +393,48 @@ function renderWaste(w) {
     (items.length || r.failed_calls ? "" : `<div class="empty">No waste detected in this period.</div>`);
 }
 
+function renderProvenance(p, sourceFilter) {
+  const el = $("provenance");
+
+  // Only the unfiltered view can mislead. Once you have explicitly asked for
+  // one class of row, the number means exactly what you selected.
+  if (sourceFilter !== "all") {
+    const label = { "live,manual": "billed rows (live + manual)",
+                    "live": "live API calls", "demo": "seeded demo data" }[sourceFilter] || sourceFilter;
+    el.className = "provenance show";
+    el.innerHTML = `Showing <b>${esc(label)}</b> only. Totals below exclude every other row.`;
+    return;
+  }
+
+  if (!p.has_demo_data) { el.className = "provenance"; el.innerHTML = ""; return; }
+
+  const calls = p.calls_by_source || {};
+  el.className = "provenance show";
+  el.innerHTML =
+    `<b>${p.demo_percent_of_total}% of the spend shown is seeded demo data</b> — ` +
+    `${usd2(p.demo_cost_usd)} across ${calls.demo || 0} sample rows that were never billed. ` +
+    `Real spend is <b>${usd2(p.billed_cost_usd)}</b> ` +
+    `(${calls.live || 0} live call${calls.live === 1 ? "" : "s"}, ${calls.manual || 0} manual entr${calls.manual === 1 ? "y" : "ies"}).` +
+    `<div class="why">Switch <b>Data</b> to "Billed only" for real figures, or run ` +
+    `<code>python -m src.tracker --purge demo</code> to drop the samples entirely.</div>`;
+}
+
 async function load() {
   const period = $("period").value;
-  const [report, budget, burn, providers, anomalies, calls, waste] = await Promise.all([
-    getJSON(`/report?period=${period}`),
-    getJSON("/budget"),
-    getJSON(`/burn-rate?period=${period}`),
-    getJSON(`/providers?period=${period}`),
-    getJSON("/anomalies"),
-    getJSON(`/calls?period=${period}&limit=30`),
-    getJSON(`/waste?period=${period}`),
+  const source = $("source").value;
+  const q = `period=${period}&source=${encodeURIComponent(source)}`;
+  const [report, budget, burn, providers, anomalies, calls, waste, prov] = await Promise.all([
+    getJSON(`/report?${q}`),
+    getJSON(`/budget?source=${encodeURIComponent(source)}`),
+    getJSON(`/burn-rate?${q}`),
+    getJSON(`/providers?${q}`),
+    getJSON(`/anomalies?source=${encodeURIComponent(source)}`),
+    getJSON(`/calls?${q}&limit=30`),
+    getJSON(`/waste?${q}`),
+    getJSON(`/provenance?period=${period}`),
   ]);
+
+  renderProvenance(prov, source);
 
   const configured = Object.entries(providers.configured).filter(([, v]) => v).map(([k]) => k);
   $("provider-status").textContent = configured.length
@@ -418,6 +488,7 @@ async function load() {
     ? calls.map(c => `
         <tr class="${flagged.has(c.id) ? "anomaly" : ""}">
           <td>${fmtTime(c.timestamp)}</td>
+          <td><span class="src src-${esc(c.source)}">${esc(c.source)}</span></td>
           <td><span class="dot" style="background:${colorFor(c.provider)}"></span>${esc(c.model)}</td>
           <td>${esc(c.project_tag)}</td>
           <td class="num">${c.input_tokens}/${c.output_tokens}</td>
@@ -426,10 +497,11 @@ async function load() {
           <td class="num">${Math.round(c.latency_ms)}ms</td>
           <td class="preview">${c.success ? "" : '<span class="failed">failed</span> '}${esc(c.prompt_preview)}</td>
         </tr>`).join("")
-    : `<tr><td colspan="8" class="empty">No calls in this period</td></tr>`;
+    : `<tr><td colspan="9" class="empty">No calls in this period</td></tr>`;
 }
 
 $("period").addEventListener("change", () => load().catch(showError));
+$("source").addEventListener("change", () => load().catch(showError));
 function showError(err) {
   document.querySelector(".wrap").insertAdjacentHTML("beforeend",
     `<div class="empty">Failed to load data: ${esc(err.message)}</div>`);

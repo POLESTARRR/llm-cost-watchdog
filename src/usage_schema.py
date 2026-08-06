@@ -6,6 +6,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Where a row came from. A cost tracker whose numbers can't be traced back to a
+# real API call is worse than no tracker — it reports confident fiction. Every
+# row carries its provenance so "total spend" can always be narrowed to money
+# that was actually charged.
+#   live   - a real HTTP request through call_llm(); the only rows you were billed for
+#   demo   - seeded sample data, for populating an empty dashboard
+#   manual - hand-entered via log_manual_entry / the CLI; real spend, but unverified
+Source = Literal["live", "demo", "manual"]
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -28,6 +37,10 @@ class UsageEvent(BaseModel):
     prompt_preview: str = ""
     success: bool = True
     error: str | None = None
+    # Defaults to "live" because the wrapper is the overwhelmingly common
+    # writer, and a row that lies about being real is the dangerous direction
+    # of that default — seeders and manual entry both set this explicitly.
+    source: Source = "live"
 
     @classmethod
     def make_preview(cls, prompt: str, limit: int = 80) -> str:
@@ -59,3 +72,9 @@ class CostReport(BaseModel):
     cache_savings_usd: float = 0.0
     failed_calls: int = 0
     anomalies: list[AnomalyFlag] = Field(default_factory=list)
+    # Provenance of the rows behind these totals. `source_filter` is None when
+    # the report spans everything; `breakdown_by_source` lets any consumer see
+    # at a glance how much of the headline number was actually billed.
+    source_filter: str | None = None
+    breakdown_by_source: dict[str, float] = Field(default_factory=dict)
+    calls_by_source: dict[str, int] = Field(default_factory=dict)

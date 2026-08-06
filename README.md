@@ -50,7 +50,7 @@ This project models all of that. One wrapper function, `call_llm()`, records cos
             ┌───────────────────┼───────────────────┐
             ▼                   ▼                   ▼
      src/digest.py       src/mcp_server.py    dashboard/app.py
-   weekly agentic loop    11 tools, stdio      FastAPI + static HTML
+   weekly agentic loop    12 tools, stdio      FastAPI + static HTML
                           → Claude Desktop     → localhost:8000
 ```
 
@@ -105,6 +105,12 @@ Load the synthetic sample data so there's something to look at:
 ```bash
 python -m src.tracker --batch-load sample_usage.json
 ```
+
+These rows land tagged `source=demo`. They are never counted against your
+budget, they can't trip a guardrail, and the dashboard states on its face how
+much of the displayed total they account for — see [§8a Provenance](#8a-provenance--is-this-number-real).
+Once you have real traffic of your own, `python -m src.tracker --purge demo`
+removes them and leaves billed history untouched.
 
 Then any of:
 
@@ -247,17 +253,20 @@ spend and reported with per-category detail alongside.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `get_cost_report` | `period`: `today`\|`week`\|`month`\|`all_time` | Total cost, calls, failures, cache savings, breakdowns by model / project / provider |
-| `check_budget_status` | none | `under`/`near`/`over`, percent used, remaining USD |
+| `get_cost_report` | `period`: `today`\|`week`\|`month`\|`all_time`, `source?` | Total cost, calls, failures, cache savings, breakdowns by model / project / provider / source |
+| `get_data_provenance` | `period` | How much of the recorded spend is real: cost and calls split by `live` / `manual` / `demo` |
+| `check_budget_status` | none | `under`/`near`/`over`, percent used, remaining USD. Counts billed rows only |
 | `get_burn_rate` | `period` | Daily burn, projected weekly total, budget-exhaustion date, confidence |
-| `flag_anomalies` | `threshold_multiplier` (default `3.0`) | Flagged calls with reason and severity |
-| `get_provider_breakdown` | `period` | Per-provider cost, calls, tokens, cache hit rate, avg latency, models used |
+| `flag_anomalies` | `threshold_multiplier` (default `3.0`), `source?` | Flagged calls with reason and severity |
+| `get_provider_breakdown` | `period`, `source?` | Per-provider cost, calls, tokens, cache hit rate, avg latency, models used, and `live_calls` |
 | `compare_model_costs` | `input_tokens`, `output_tokens`, `models?` | What one call would cost on each model, cheapest first. No API calls made |
 | `what_if_switched` | `from_model`, `to_model`, `period` | Re-prices your real traffic on another model |
-| `find_waste` | `period` | Retry waste, duplicate prompts, missed caching, over-powered models — each with a concrete action |
+| `find_waste` | `period`, `source?` | Retry waste, duplicate prompts, missed caching, over-powered models — each with a concrete action |
 | `check_guard_status` | none | Guard mode, budget headroom, call-rate vs. the circuit breaker, per-project caps |
 | `list_providers` | none | Which providers have credentials; which models are priced |
-| `log_manual_entry` | `model`, `cost_usd`, `tokens`, `project_tag`, `note` | `"✓ logged"` |
+| `log_manual_entry` | `model`, `cost_usd`, `tokens`, `project_tag`, `note` | Confirmation; the row is recorded with `source=manual` |
+
+`source` accepts `live`, `demo`, `manual`, any comma-separated combination (`live,manual`), or `all`. Omitting it includes everything — but the report still returns `breakdown_by_source`, so a total inflated by seeded data can never present itself as billed spend.
 
 Example exchanges in Claude Desktop:
 
@@ -280,6 +289,54 @@ Example exchanges in Claude Desktop:
 > [{"reason": "cost $0.130840 is 295.3x the rolling avg for gpt-5.6-luna; latency 14800ms is 11.6x the rolling avg",
 >   "severity": "high"}]
 > ```
+
+> **"Is any of this real?"** → `get_data_provenance()`
+> ```json
+> {"total_cost_usd": 0.476797, "billed_cost_usd": 0.006593,
+>  "demo_cost_usd": 0.470204, "demo_percent_of_total": 98.62,
+>  "calls_by_source": {"demo": 44, "manual": 4, "live": 5}}
+> ```
+
+---
+
+## 8a. Provenance — is this number real?
+
+A cost tracker whose figures can't be traced back to a billed API call is worse
+than no tracker: it reports confident fiction. This repo ships with
+`sample_usage.json` so the dashboard isn't empty on first run, which means the
+headline figure is mostly invented until you generate traffic of your own.
+
+Rather than hide that, every row carries a `source`:
+
+| Source | Meaning | Counts toward budget? |
+|---|---|---|
+| `live` | A real HTTP request through `call_llm()`. Latency measured, tokens from the provider's own usage block | Yes |
+| `manual` | Hand-entered via `log_manual_entry` or the CLI. Real spend, but reported rather than measured | Yes |
+| `demo` | Seeded from a JSON file. Never billed, cost nothing | **No** |
+
+Three consequences worth stating:
+
+1. **Guardrails count billed rows only.** Loading `sample_usage.json` must never
+   be enough to exhaust your budget and start refusing real calls. `check_guards()`
+   and `check_budget_status()` filter to `live,manual`.
+2. **The dashboard says so on its face.** When demo rows are present it renders a
+   banner reading *"98.62% of the spend shown is seeded demo data"*, and the
+   **Data** filter switches to billed-only. Each row in the activity table wears
+   its badge; each provider bar shows `live_calls`, so a provider whose adapter
+   has never run for real is visibly labeled **NO LIVE CALLS**.
+3. **Upgrading an old DB classifies rather than assumes.** `ALTER TABLE … DEFAULT
+   'live'` would stamp every pre-existing row as real. The migration instead
+   infers provenance from two fingerprints the writers left behind — measured
+   calls carry microsecond timestamps and non-zero latency; seeded rows were
+   authored at round minutes — and defaults to `demo` on ambiguity, because
+   understating spend is visible while overstating it invents money.
+
+Once you have real traffic, drop the samples:
+
+```bash
+python -m src.tracker --provenance      # what's real right now
+python -m src.tracker --purge demo      # delete seeded rows, keep billed history
+```
 
 ---
 
@@ -361,6 +418,7 @@ It is agentic in an honest, narrow sense: it makes a judgment call every week �
 Stated plainly rather than hidden:
 
 - **Pricing is a snapshot.** Rates were verified against provider pricing pages in August 2026 and are hardcoded. There is no automatic refresh; when a vendor changes prices, `src/pricing.py` needs an edit. `python -m src.pricing` prints the whole table for review.
-- **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls.
+- **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
+- **Most of the shipped data is seeded.** Out of the box the DB is `sample_usage.json` plus whatever you generate. At the time of writing that is 44 demo rows ($0.4702) against 5 live calls and 4 manual entries ($0.0066) — 98.62% demo. Run `python -m src.tracker --provenance` for the current split, and `--purge demo` to clear it.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
 - **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate — which is why every projection carries a `confidence` field.

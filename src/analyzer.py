@@ -12,7 +12,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from src.pricing import calculate_cost, get_rates
-from src.tracker import get_events_for_period
+from src.tracker import BILLED_SOURCES, get_events_for_period
 from src.usage_schema import AnomalyFlag, CostReport
 
 ROLLING_WINDOW = 20
@@ -20,14 +20,18 @@ ROLLING_WINDOW = 20
 _PERIOD_DAYS = {"today": 1, "week": 7, "month": 30}
 
 
-def compute_report(period: str = "week") -> CostReport:
+def compute_report(period: str = "week", source: str | None = None) -> CostReport:
     """Aggregate events for a period into totals and breakdowns.
 
-    Breaks down by model, project, and provider, and computes what prompt
-    caching actually saved — the counterfactual cost if every cached token
-    had been billed at the full input rate.
+    Breaks down by model, project, provider, and provenance, and computes what
+    prompt caching actually saved — the counterfactual cost if every cached
+    token had been billed at the full input rate.
+
+    `source` narrows to rows of a given provenance ("live", "live,manual",
+    "demo"); None includes everything but still reports the split, so a total
+    inflated by seeded data can never present itself as billed spend.
     """
-    events = get_events_for_period(period)
+    events = get_events_for_period(period, source=source)
 
     total_cost = 0.0
     cache_savings = 0.0
@@ -35,12 +39,16 @@ def compute_report(period: str = "week") -> CostReport:
     by_model: dict[str, float] = defaultdict(float)
     by_project: dict[str, float] = defaultdict(float)
     by_provider: dict[str, float] = defaultdict(float)
+    by_source: dict[str, float] = defaultdict(float)
+    calls_by_source: dict[str, int] = defaultdict(int)
 
     for e in events:
         total_cost += e.cost_usd
         by_model[e.model] += e.cost_usd
         by_project[e.project_tag] += e.cost_usd
         by_provider[e.provider] += e.cost_usd
+        by_source[e.source] += e.cost_usd
+        calls_by_source[e.source] += 1
         if not e.success:
             failed += 1
 
@@ -59,11 +67,18 @@ def compute_report(period: str = "week") -> CostReport:
         breakdown_by_model={k: round(v, 6) for k, v in by_model.items()},
         breakdown_by_project={k: round(v, 6) for k, v in by_project.items()},
         breakdown_by_provider={k: round(v, 6) for k, v in by_provider.items()},
+        source_filter=source,
+        breakdown_by_source={k: round(v, 6) for k, v in by_source.items()},
+        calls_by_source=dict(calls_by_source),
         anomalies=[],
     )
 
 
-def flag_anomalies(threshold_multiplier: float = 3.0, period: str = "all_time") -> list[AnomalyFlag]:
+def flag_anomalies(
+    threshold_multiplier: float = 3.0,
+    period: str = "all_time",
+    source: str | None = None,
+) -> list[AnomalyFlag]:
     """Flag calls whose cost OR latency exceeds `threshold_multiplier` times
     the trailing rolling average for that specific model.
 
@@ -81,7 +96,7 @@ def flag_anomalies(threshold_multiplier: float = 3.0, period: str = "all_time") 
     latency would otherwise drag the rolling average down and cause the next
     normal call to look anomalous.
     """
-    events = [e for e in get_events_for_period(period) if e.success]
+    events = [e for e in get_events_for_period(period, source=source) if e.success]
 
     by_model: dict[str, list] = defaultdict(list)
     for e in events:
@@ -125,15 +140,19 @@ def flag_anomalies(threshold_multiplier: float = 3.0, period: str = "all_time") 
     return anomalies
 
 
-def check_budget_status(period: str = "weekly") -> dict:
+def check_budget_status(period: str = "weekly", source: str | None = BILLED_SOURCES) -> dict:
     """Compare current period spend against the configured budget.
 
     "near" = spend is at or over 80% of the limit but under 100%.
+
+    Defaults to billed rows only. A budget exists to describe real money, so
+    seeded demo data must not consume it — otherwise loading sample data could
+    report you "over budget" on spend that never happened.
     """
     limit_usd = float(os.environ.get("WEEKLY_BUDGET_USD", "5.00"))
 
     period_map = {"daily": "today", "weekly": "week", "monthly": "month"}
-    report = compute_report(period_map.get(period, "week"))
+    report = compute_report(period_map.get(period, "week"), source=source)
 
     spend = report.total_cost_usd
     percent_used = round((spend / limit_usd) * 100, 2) if limit_usd > 0 else 0.0
@@ -152,10 +171,12 @@ def check_budget_status(period: str = "weekly") -> dict:
         "spend_usd": round(spend, 6),
         "limit_usd": limit_usd,
         "period": period,
+        "source_filter": source,
+        "counted_calls": report.total_calls,
     }
 
 
-def project_burn_rate(period: str = "week") -> dict:
+def project_burn_rate(period: str = "week", source: str | None = BILLED_SOURCES) -> dict:
     """Project when current spend will exhaust the weekly budget.
 
     Answers the question a raw total can't: "am I on track?" Uses the observed
@@ -166,7 +187,7 @@ def project_burn_rate(period: str = "week") -> dict:
     short window projects a misleadingly high rate, so `confidence` reports
     how much data the projection rests on.
     """
-    events = [e for e in get_events_for_period(period) if e.success]
+    events = [e for e in get_events_for_period(period, source=source) if e.success]
     limit_usd = float(os.environ.get("WEEKLY_BUDGET_USD", "5.00"))
 
     if not events:
@@ -231,13 +252,13 @@ def project_burn_rate(period: str = "week") -> dict:
     }
 
 
-def provider_breakdown(period: str = "week") -> list[dict]:
+def provider_breakdown(period: str = "week", source: str | None = None) -> list[dict]:
     """Per-provider cost, call volume, tokens, latency, and cache hit rate.
 
     The view that only exists once tracking is multi-provider: which vendor is
     actually costing you money, and which one is slow.
     """
-    events = get_events_for_period(period)
+    events = get_events_for_period(period, source=source)
     grouped: dict[str, list] = defaultdict(list)
     for e in events:
         grouped[e.provider].append(e)
@@ -247,11 +268,19 @@ def provider_breakdown(period: str = "week") -> list[dict]:
         ok = [e for e in items if e.success]
         in_tokens = sum(e.input_tokens for e in ok)
         cached = sum(e.cached_input_tokens for e in ok)
+        by_source: dict[str, int] = defaultdict(int)
+        for e in items:
+            by_source[e.source] += 1
         rows.append(
             {
                 "provider": provider,
                 "total_cost_usd": round(sum(e.cost_usd for e in items), 6),
                 "calls": len(items),
+                "calls_by_source": dict(by_source),
+                # Zero here means this provider has never been exercised for
+                # real — its numbers are seeded, and its adapter is untested
+                # against a live endpoint.
+                "live_calls": by_source.get("live", 0),
                 "failed_calls": len(items) - len(ok),
                 "input_tokens": in_tokens,
                 "output_tokens": sum(e.output_tokens for e in ok),
@@ -266,14 +295,17 @@ def provider_breakdown(period: str = "week") -> list[dict]:
     return rows
 
 
-def what_if_switched(from_model: str, to_model: str, period: str = "week") -> dict:
+def what_if_switched(
+    from_model: str, to_model: str, period: str = "week", source: str | None = None
+) -> dict:
     """Re-price this period's real traffic as if it had run on another model.
 
     Turns "should I switch models?" from a guess into arithmetic, using your
     own token counts rather than a vendor's benchmark.
     """
     events = [
-        e for e in get_events_for_period(period) if e.success and e.model == from_model
+        e for e in get_events_for_period(period, source=source)
+        if e.success and e.model == from_model
     ]
     if not events:
         return {

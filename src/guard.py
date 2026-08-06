@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from src.pricing import calculate_cost
-from src.tracker import get_events_for_period
+from src.tracker import BILLED_SOURCES, get_events_for_period
 
 logger = logging.getLogger("llm-cost-watchdog")
 
@@ -111,7 +111,10 @@ def check_guards(
     details: dict = {}
     reasons: list[str] = []
 
-    events = get_events_for_period("week")
+    # Billed rows only. Seeded demo data must never block a real call — loading
+    # sample_usage.json would otherwise be enough to exhaust the budget and
+    # refuse traffic on spend that never happened.
+    events = get_events_for_period("week", source=BILLED_SOURCES)
     spend = sum(e.cost_usd for e in events)
     limit = float(os.environ.get("WEEKLY_BUDGET_USD", "5.00"))
 
@@ -218,6 +221,7 @@ def guard_status() -> dict:
         "max_calls_per_minute": d.get("max_calls_per_minute"),
         "max_cost_per_call_usd": float(os.environ.get("WATCHDOG_MAX_COST_PER_CALL", "1.00")),
         "project_caps": _project_caps(),
+        "counts_sources": BILLED_SOURCES,
     }
 
 
