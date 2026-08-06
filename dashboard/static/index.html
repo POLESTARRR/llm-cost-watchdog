@@ -291,7 +291,7 @@
         <thead><tr>
           <th>Time</th><th>Source</th><th>Model</th><th>Project</th>
           <th class="num">Tokens</th><th class="num">Cached</th>
-          <th class="num">Cost</th><th class="num">Latency</th><th>Prompt</th>
+          <th class="num">Cost</th><th>Prompt</th>
         </tr></thead>
         <tbody id="calls"></tbody>
       </table>
@@ -502,10 +502,9 @@ async function load() {
           <td class="num">${c.input_tokens}/${c.output_tokens}</td>
           <td class="num">${c.cached_input_tokens || "—"}</td>
           <td class="num">${usd(c.cost_usd)}</td>
-          <td class="num">${Math.round(c.latency_ms)}ms</td>
           <td class="preview">${c.success ? "" : '<span class="failed">failed</span> '}${esc(c.prompt_preview)}</td>
         </tr>`).join("")
-    : `<tr><td colspan="9" class="empty">No calls in this period</td></tr>`;
+    : `<tr><td colspan="8" class="empty">No calls in this period</td></tr>`;
 }
 
 $("period").addEventListener("change", () => load().catch(showError));
