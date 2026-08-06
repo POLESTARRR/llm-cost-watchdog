@@ -42,14 +42,14 @@ _DOWNGRADE = {
 }
 
 
-def find_retry_waste(period: str = "week") -> dict:
+def find_retry_waste(period: str = "week", source: str | None = None) -> dict:
     """Money and time spent on calls that returned nothing.
 
     Failed calls usually cost $0 directly, but they are not free: they burn
     latency, they consume rate-limit budget, and a high failure rate on one
     model is a signal to switch or back off harder.
     """
-    events = get_events_for_period(period)
+    events = get_events_for_period(period, source=source)
     failed = [e for e in events if not e.success]
 
     by_model: dict[str, int] = Counter(e.model for e in failed)
@@ -89,14 +89,16 @@ def _retry_recommendation(failed: int, total: int, by_model: Counter) -> str:
     return f"{failed} failed call(s) on {worst} — within normal transient range."
 
 
-def find_duplicate_calls(period: str = "week", min_repeats: int = 2) -> list[dict]:
+def find_duplicate_calls(
+    period: str = "week", min_repeats: int = 2, source: str | None = None
+) -> list[dict]:
     """Identical prompts sent more than once.
 
     The cheapest token is the one you don't send. A prompt repeated verbatim
     is either a missing local cache or a loop re-asking the same question.
     """
     events = [
-        e for e in get_events_for_period(period)
+        e for e in get_events_for_period(period, source=source)
         if e.success and len(e.prompt_preview) >= _MIN_PREVIEW_FOR_DUPLICATE
     ]
 
@@ -125,7 +127,9 @@ def find_duplicate_calls(period: str = "week", min_repeats: int = 2) -> list[dic
     return rows
 
 
-def find_cache_opportunities(period: str = "week", min_input_tokens: int = 1024) -> list[dict]:
+def find_cache_opportunities(
+    period: str = "week", min_input_tokens: int = 1024, source: str | None = None
+) -> list[dict]:
     """Repeated large prompts that were never served from cache.
 
     Prompt caching is the biggest single lever on real LLM spend, and it is
@@ -134,7 +138,7 @@ def find_cache_opportunities(period: str = "week", min_input_tokens: int = 1024)
     saving using the model's real cached rate.
     """
     events = [
-        e for e in get_events_for_period(period)
+        e for e in get_events_for_period(period, source=source)
         if e.success and e.input_tokens >= min_input_tokens
     ]
 
@@ -174,7 +178,7 @@ def find_cache_opportunities(period: str = "week", min_input_tokens: int = 1024)
     return rows
 
 
-def find_overpowered_calls(period: str = "week") -> list[dict]:
+def find_overpowered_calls(period: str = "week", source: str | None = None) -> list[dict]:
     """Frontier models doing work a cheap model would have handled.
 
     Heuristic, and labeled as one: short input AND short output on an
@@ -182,7 +186,7 @@ def find_overpowered_calls(period: str = "week") -> list[dict]:
     of the call looks trivial. Treat it as a prompt to review, not a verdict.
     """
     events = [
-        e for e in get_events_for_period(period)
+        e for e in get_events_for_period(period, source=source)
         if e.success
         and e.model.startswith(_FRONTIER_PREFIXES)
         and e.output_tokens <= _TRIVIAL_OUTPUT_TOKENS
@@ -228,12 +232,12 @@ def find_overpowered_calls(period: str = "week") -> list[dict]:
     return rows
 
 
-def find_waste(period: str = "week") -> dict:
+def find_waste(period: str = "week", source: str | None = None) -> dict:
     """Run every waste check and total the recoverable spend."""
-    retries = find_retry_waste(period)
-    duplicates = find_duplicate_calls(period)
-    cache_ops = find_cache_opportunities(period)
-    overpowered = find_overpowered_calls(period)
+    retries = find_retry_waste(period, source=source)
+    duplicates = find_duplicate_calls(period, source=source)
+    cache_ops = find_cache_opportunities(period, source=source)
+    overpowered = find_overpowered_calls(period, source=source)
 
     by_category = {
         "duplicate_calls": sum(r["avoidable_cost_usd"] for r in duplicates),
@@ -241,7 +245,7 @@ def find_waste(period: str = "week") -> dict:
         "overpowered_calls": sum(r["estimated_saving_usd"] for r in overpowered),
     }
 
-    total = compute_total(period)
+    total = compute_total(period, source=source)
 
     # The categories OVERLAP — a duplicated call is also a cache opportunity,
     # and both may also be over-powered. Summing them naively can exceed total
@@ -255,6 +259,7 @@ def find_waste(period: str = "week") -> dict:
 
     return {
         "period": period,
+        "source_filter": source,
         "total_spend_usd": round(total, 6),
         "recoverable_usd": round(recoverable, 6),
         "recoverable_percent": pct,
@@ -273,8 +278,8 @@ def find_waste(period: str = "week") -> dict:
     }
 
 
-def compute_total(period: str) -> float:
-    return sum(e.cost_usd for e in get_events_for_period(period))
+def compute_total(period: str, source: str | None = None) -> float:
+    return sum(e.cost_usd for e in get_events_for_period(period, source=source))
 
 
 def _top_action(duplicates, cache_ops, overpowered, retries) -> str:

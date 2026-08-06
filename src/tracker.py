@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS usage_events (
     latency_ms REAL NOT NULL,
     prompt_preview TEXT,
     success INTEGER NOT NULL,
-    error TEXT
+    error TEXT,
+    source TEXT NOT NULL DEFAULT 'live'
 );
 """
 
@@ -57,6 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_timestamp ON usage_events(timestamp)
 CREATE INDEX IF NOT EXISTS idx_usage_events_model ON usage_events(model);
 CREATE INDEX IF NOT EXISTS idx_usage_events_provider ON usage_events(provider);
 CREATE INDEX IF NOT EXISTS idx_usage_events_project ON usage_events(project_tag);
+CREATE INDEX IF NOT EXISTS idx_usage_events_source ON usage_events(source);
 """
 
 # Columns added after v1 shipped. A watchdog that loses your cost history on
@@ -65,7 +67,15 @@ _MIGRATIONS = [
     ("provider", "TEXT NOT NULL DEFAULT 'unknown'"),
     ("cached_input_tokens", "INTEGER NOT NULL DEFAULT 0"),
     ("cache_write_tokens", "INTEGER NOT NULL DEFAULT 0"),
+    ("source", "TEXT NOT NULL DEFAULT 'live'"),
 ]
+
+VALID_SOURCES = ("live", "demo", "manual")
+
+# The rows representing money that actually left your account. Anything that
+# enforces or projects real spend filters to this — a seeded demo row must
+# never trip a real budget or block a real call.
+BILLED_SOURCES = "live,manual"
 
 
 @contextmanager
@@ -87,11 +97,45 @@ def init_db(db_path: str | None = None) -> None:
         conn.executescript(TABLE_SCHEMA)
 
         existing = {row["name"] for row in conn.execute("PRAGMA table_info(usage_events)")}
+        added = []
         for column, ddl in _MIGRATIONS:
             if column not in existing:
                 conn.execute(f"ALTER TABLE usage_events ADD COLUMN {column} {ddl}")
+                added.append(column)
+
+        # ADD COLUMN ... DEFAULT 'live' stamps every pre-existing row as live,
+        # which would assert that seeded demo rows were real billed calls. The
+        # backfill runs once, only in the transaction that added the column.
+        if "source" in added:
+            _backfill_source(conn)
 
         conn.executescript(INDEX_SCHEMA)
+
+
+def _backfill_source(conn: sqlite3.Connection) -> None:
+    """Classify rows that predate the `source` column.
+
+    There is no stored flag to read, so this infers provenance from two
+    fingerprints the writers left behind:
+
+      * Real calls are timestamped with `datetime.now()`, which carries
+        microseconds. Seeded rows were authored by hand at round minutes.
+      * Real calls measure latency with a clock, so it is never exactly zero.
+        Manual entries hardcode `latency_ms=0.0`.
+
+    Anything that fails both tests is treated as demo data. That direction is
+    deliberate: mislabelling a real call as demo understates spend and is
+    visible, while the reverse invents money you never spent.
+    """
+    conn.execute(
+        """
+        UPDATE usage_events SET source = CASE
+            WHEN latency_ms = 0 AND success = 1 THEN 'manual'
+            WHEN instr(timestamp, '.') > 0     THEN 'live'
+            ELSE 'demo'
+        END
+        """
+    )
 
 
 def log_usage(event: UsageEvent, db_path: str | None = None) -> None:
@@ -103,8 +147,8 @@ def log_usage(event: UsageEvent, db_path: str | None = None) -> None:
             INSERT INTO usage_events
                 (id, timestamp, model, provider, project_tag,
                  input_tokens, output_tokens, cached_input_tokens, cache_write_tokens,
-                 cost_usd, latency_ms, prompt_preview, success, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cost_usd, latency_ms, prompt_preview, success, error, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.id,
@@ -121,6 +165,7 @@ def log_usage(event: UsageEvent, db_path: str | None = None) -> None:
                 event.prompt_preview,
                 int(event.success),
                 event.error,
+                event.source,
             ),
         )
 
@@ -129,12 +174,17 @@ def get_events(
     start_date: str | None = None,
     end_date: str | None = None,
     project_tag: str | None = None,
+    source: str | None = None,
     db_path: str | None = None,
 ) -> list[UsageEvent]:
-    """Retrieve UsageEvents, optionally filtered by ISO date range and project_tag.
+    """Retrieve UsageEvents, optionally filtered by ISO date range, project, and source.
 
     start_date/end_date are inclusive ISO-8601 timestamp strings. If omitted,
     that bound is unlimited.
+
+    `source` accepts one of VALID_SOURCES, a comma-separated set of them
+    ("live,manual" — every row you were actually billed for), or None/"all"
+    for everything.
     """
     init_db(db_path)
     query = "SELECT * FROM usage_events WHERE 1=1"
@@ -148,6 +198,10 @@ def get_events(
     if project_tag:
         query += " AND project_tag = ?"
         params.append(project_tag)
+    wanted = parse_sources(source)
+    if wanted is not None:
+        query += f" AND source IN ({','.join('?' * len(wanted))})"
+        params.extend(wanted)
     query += " ORDER BY timestamp ASC"
 
     with _connect(db_path) as conn:
@@ -169,9 +223,56 @@ def get_events(
             prompt_preview=row["prompt_preview"] or "",
             success=bool(row["success"]),
             error=row["error"],
+            source=_row_get(row, "source", "live"),
         )
         for row in rows
     ]
+
+
+def parse_sources(source: str | None) -> tuple[str, ...] | None:
+    """Normalise a source filter into a tuple of valid sources, or None for all.
+
+    Returns None (meaning "no filter") for None and "all", so callers can pass
+    a query-string value straight through without special-casing it.
+    """
+    if source is None:
+        return None
+    cleaned = source.strip().lower()
+    if not cleaned or cleaned == "all":
+        return None
+
+    wanted = tuple(part.strip() for part in cleaned.split(",") if part.strip())
+    invalid = [s for s in wanted if s not in VALID_SOURCES]
+    if invalid:
+        raise ValueError(f"invalid source(s) {invalid}; expected any of {list(VALID_SOURCES)} or 'all'")
+    return wanted
+
+
+def source_totals(period: str = "all_time", db_path: str | None = None) -> dict:
+    """Cost and call count per provenance class, for the period.
+
+    This is what makes the headline number honest: it says how much of the
+    total was really billed vs. seeded for the demo.
+    """
+    events = get_events_for_period(period, db_path=db_path)
+    cost: dict[str, float] = {}
+    calls: dict[str, int] = {}
+    for e in events:
+        cost[e.source] = round(cost.get(e.source, 0.0) + e.cost_usd, 6)
+        calls[e.source] = calls.get(e.source, 0) + 1
+
+    billed = round(cost.get("live", 0.0) + cost.get("manual", 0.0), 6)
+    total = round(sum(cost.values()), 6)
+    return {
+        "period": period,
+        "cost_by_source": cost,
+        "calls_by_source": calls,
+        "total_cost_usd": total,
+        "billed_cost_usd": billed,
+        "demo_cost_usd": round(cost.get("demo", 0.0), 6),
+        "has_demo_data": calls.get("demo", 0) > 0,
+        "demo_percent_of_total": round((cost.get("demo", 0.0) / total) * 100, 2) if total else 0.0,
+    }
 
 
 def _row_get(row: sqlite3.Row, key: str, default):
@@ -199,17 +300,25 @@ def _period_start(period: str) -> str:
     return start.isoformat()
 
 
-def get_events_for_period(period: str, project_tag: str | None = None, db_path: str | None = None) -> list[UsageEvent]:
+def get_events_for_period(
+    period: str,
+    project_tag: str | None = None,
+    source: str | None = None,
+    db_path: str | None = None,
+) -> list[UsageEvent]:
     """Convenience wrapper: get_events() for a named period ('today'|'week'|'month'|'all_time')."""
     start = _period_start(period)
-    return get_events(start_date=start, project_tag=project_tag, db_path=db_path)
+    return get_events(start_date=start, project_tag=project_tag, source=source, db_path=db_path)
 
 
-def batch_load(json_path: str, db_path: str | None = None) -> int:
+def batch_load(json_path: str, db_path: str | None = None, source: str = "demo") -> int:
     """Load events from a sample_usage.json-style file for testing.
 
     Each entry may omit cost_usd (computed via pricing.py), timestamp
     (defaults to now), and id (auto-generated). Returns the count loaded.
+
+    Rows land as `demo` unless told otherwise: anything arriving from a JSON
+    file was authored, not billed, and the dashboard needs to be able to say so.
     """
     with open(json_path) as f:
         raw_events = json.load(f)
@@ -239,6 +348,7 @@ def batch_load(json_path: str, db_path: str | None = None) -> int:
             prompt_preview=UsageEvent.make_preview(raw.get("prompt_preview", "")),
             success=raw.get("success", True),
             error=raw.get("error"),
+            source=raw.get("source", source),
             **({"timestamp": raw["timestamp"]} if "timestamp" in raw else {}),
         )
         log_usage(event, db_path=db_path)
@@ -255,6 +365,20 @@ def _safe_provider(model: str) -> str:
         return "unknown"
 
 
+def purge_source(source: str, db_path: str | None = None) -> int:
+    """Delete every row with the given provenance. Returns rows removed.
+
+    Exists so seeded data can be thrown away once there is real traffic to
+    look at, without touching billed history.
+    """
+    if source not in VALID_SOURCES:
+        raise ValueError(f"invalid source {source!r}; expected one of {list(VALID_SOURCES)}")
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        cursor = conn.execute("DELETE FROM usage_events WHERE source = ?", (source,))
+        return cursor.rowcount
+
+
 def _main() -> None:
     parser = argparse.ArgumentParser(description="Manually log usage events or batch-load sample data.")
     parser.add_argument("--log-manual", action="store_true", help="Log a single manual usage event")
@@ -264,6 +388,12 @@ def _main() -> None:
     parser.add_argument("--project", type=str, default="default", help="Project tag")
     parser.add_argument("--note", type=str, default="", help="Optional note, stored as prompt_preview")
     parser.add_argument("--batch-load", type=str, help="Path to a sample_usage.json-style file to load")
+    parser.add_argument("--source", type=str, default=None, choices=list(VALID_SOURCES),
+                        help="Provenance to stamp on loaded/logged rows (default: demo for --batch-load, manual for --log-manual)")
+    parser.add_argument("--purge", type=str, default=None, choices=list(VALID_SOURCES),
+                        help="Delete every row with this provenance, e.g. --purge demo")
+    parser.add_argument("--provenance", action="store_true", help="Show the cost/call split by source")
+    parser.add_argument("--period", type=str, default="all_time", help="Period for --provenance")
     parser.add_argument("--db-path", type=str, default=None, help="Override the SQLite DB path")
     args = parser.parse_args()
 
@@ -280,12 +410,19 @@ def _main() -> None:
             latency_ms=0.0,
             prompt_preview=UsageEvent.make_preview(args.note or "manual entry"),
             success=True,
+            source=args.source or "manual",
         )
         log_usage(event, db_path=args.db_path)
-        print(f"logged manual entry {event.id} | model={event.model} cost=${event.cost_usd:.6f} project={event.project_tag}")
+        print(f"logged {event.source} entry {event.id} | model={event.model} cost=${event.cost_usd:.6f} project={event.project_tag}")
     elif args.batch_load:
-        n = batch_load(args.batch_load, db_path=args.db_path)
-        print(f"loaded {n} events from {args.batch_load}")
+        n = batch_load(args.batch_load, db_path=args.db_path, source=args.source or "demo")
+        print(f"loaded {n} events from {args.batch_load} as source={args.source or 'demo'}")
+    elif args.purge:
+        n = purge_source(args.purge, db_path=args.db_path)
+        print(f"purged {n} row(s) with source={args.purge}")
+    elif args.provenance:
+        totals = source_totals(args.period, db_path=args.db_path)
+        print(json.dumps(totals, indent=2))
     else:
         parser.print_help()
 

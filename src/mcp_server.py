@@ -16,7 +16,8 @@ from src.guard import guard_status as _guard_status
 from src.pricing import PRICING_TABLE, compare_models
 from src.providers import configured_providers, infer_provider
 from src.waste import find_waste as _find_waste
-from src.tracker import log_usage
+from src.tracker import VALID_SOURCES, log_usage
+from src.tracker import source_totals as _source_totals
 from src.usage_schema import UsageEvent
 
 server = MCPServer(
@@ -25,7 +26,10 @@ server = MCPServer(
         "Tracks LLM API cost, tokens, latency, and prompt-cache usage across "
         "Anthropic, OpenAI, and Google. Use these tools to report spend, check "
         "budget and burn rate, surface anomalous calls, compare model pricing, "
-        "and log calls made outside the tracked wrapper."
+        "and log calls made outside the tracked wrapper. Every row carries a "
+        "provenance ('live' = a real billed API call, 'demo' = seeded sample "
+        "data, 'manual' = hand-entered) — use get_data_provenance before "
+        "quoting a total as real money."
     ),
 )
 
@@ -36,15 +40,47 @@ def _bad_period(period: str) -> dict:
     return {"error": f"invalid period {period!r}; expected one of {sorted(_VALID_PERIODS)}"}
 
 
+def _bad_source(source: str) -> dict:
+    return {"error": f"invalid source {source!r}; expected any of {list(VALID_SOURCES)}, "
+                     f"a comma-separated set of them, or 'all'"}
+
+
+def _check_source(source: str | None) -> dict | None:
+    """Return an error dict if `source` is unusable, else None."""
+    if source is None:
+        return None
+    parts = [p.strip() for p in source.strip().lower().split(",") if p.strip()]
+    if parts == ["all"] or not parts:
+        return None
+    return None if all(p in VALID_SOURCES for p in parts) else _bad_source(source)
+
+
 @server.tool(
     description="Get an LLM cost report for a period. period: 'today' | 'week' | 'month' | "
                 "'all_time'. Returns total cost, call count, failures, prompt-cache savings, "
-                "and breakdowns by model, project, and provider."
+                "and breakdowns by model, project, provider, and data source. Pass "
+                "source='live' for real billed calls only, 'live,manual' for everything you "
+                "were charged for, or leave unset to include seeded demo data. Always read "
+                "breakdown_by_source before describing the total as real spend."
 )
-def get_cost_report(period: str = "week") -> dict:
+def get_cost_report(period: str = "week", source: str | None = None) -> dict:
     if period not in _VALID_PERIODS:
         return _bad_period(period)
-    return compute_report(period).model_dump()
+    if (err := _check_source(source)) is not None:
+        return err
+    return compute_report(period, source=source).model_dump()
+
+
+@server.tool(
+    description="Show how much of the recorded spend is real. Splits cost and call count by "
+                "provenance: 'live' (an actual billed API call), 'manual' (hand-entered, real "
+                "but unverified), and 'demo' (seeded sample data that cost nothing). Use this "
+                "to answer 'is this number real?' and before quoting any total as money spent."
+)
+def get_data_provenance(period: str = "all_time") -> dict:
+    if period not in _VALID_PERIODS:
+        return _bad_period(period)
+    return _source_totals(period)
 
 
 @server.tool(
@@ -76,12 +112,16 @@ def flag_anomalies(threshold_multiplier: float = 3.0) -> list[dict]:
 
 @server.tool(
     description="Break spend down by provider (anthropic / openai / google): cost, call volume, "
-                "tokens, prompt-cache hit rate, average latency, and which models were used."
+                "tokens, prompt-cache hit rate, average latency, and which models were used. "
+                "Each row reports live_calls — if that is 0 the provider's numbers are seeded "
+                "demo data and its adapter has never run against a live endpoint."
 )
-def get_provider_breakdown(period: str = "week") -> list[dict]:
+def get_provider_breakdown(period: str = "week", source: str | None = None) -> list[dict]:
     if period not in _VALID_PERIODS:
         return [_bad_period(period)]
-    return _provider_breakdown(period)
+    if (err := _check_source(source)) is not None:
+        return [err]
+    return _provider_breakdown(period, source=source)
 
 
 @server.tool(
@@ -130,10 +170,12 @@ def list_providers() -> dict:
                 "duplicate prompts, missed prompt-caching opportunities, and frontier models "
                 "doing trivial work. Each finding ends in a concrete action."
 )
-def find_waste(period: str = "week") -> dict:
+def find_waste(period: str = "week", source: str | None = None) -> dict:
     if period not in _VALID_PERIODS:
         return _bad_period(period)
-    return _find_waste(period)
+    if (err := _check_source(source)) is not None:
+        return err
+    return _find_waste(period, source=source)
 
 
 @server.tool(
@@ -147,7 +189,8 @@ def check_guard_status() -> dict:
 
 @server.tool(
     description="Log an LLM call made outside the tracked call_llm() wrapper — e.g. one made "
-                "through a web UI or another tool. Provider is inferred from the model ID."
+                "through a web UI or another tool. Provider is inferred from the model ID. "
+                "Recorded with source='manual': real spend, but reported rather than measured."
 )
 def log_manual_entry(
     model: str,
@@ -171,9 +214,10 @@ def log_manual_entry(
         latency_ms=0.0,
         prompt_preview=UsageEvent.make_preview(note or "manual entry"),
         success=True,
+        source="manual",
     )
     log_usage(event)
-    return "✓ logged"
+    return f"✓ logged as source=manual | {model} ${cost_usd:.6f} project={project_tag}"
 
 
 if __name__ == "__main__":
