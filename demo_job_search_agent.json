@@ -1,0 +1,113 @@
+[
+  {
+    "timestamp": "2026-07-29T09:15:00+00:00",
+    "model": "claude-sonnet-5",
+    "provider": "anthropic",
+    "project_tag": "job-search-agent",
+    "input_tokens": 420,
+    "output_tokens": 145,
+    "latency_ms": 850,
+    "success": true,
+    "prompt_preview": "Summarize this job posting and extract key requirements"
+  },
+  {
+    "timestamp": "2026-07-29T14:30:00+00:00",
+    "model": "claude-opus-5",
+    "provider": "anthropic",
+    "project_tag": "job-search-agent",
+    "input_tokens": 1850,
+    "output_tokens": 280,
+    "latency_ms": 2100,
+    "success": true,
+    "prompt_preview": "Generate a customized cover letter for this role"
+  },
+  {
+    "timestamp": "2026-07-30T08:45:00+00:00",
+    "model": "claude-sonnet-5",
+    "provider": "anthropic",
+    "project_tag": "job-search-agent",
+    "input_tokens": 380,
+    "output_tokens": 120,
+    "latency_ms": 750,
+    "success": true,
+    "prompt_preview": "Extract salary range and benefits from job posting"
+  },
+  {
+    "timestamp": "2026-07-30T11:20:00+00:00",
+    "model": "claude-opus-5",
+    "provider": "anthropic",
+    "project_tag": "job-search-agent",
+    "input_tokens": 1650,
+    "output_tokens": 320,
+    "latency_ms": 1950,
+    "success": true,
+    "prompt_preview": "Write professional email to hiring manager"
+  },
+  {
+    "timestamp": "2026-07-31T09:00:00+00:00",
+    "model": "gemini-flash-latest",
+    "provider": "google",
+    "project_tag": "job-search-agent",
+    "input_tokens": 520,
+    "output_tokens": 180,
+    "latency_ms": 600,
+    "success": true,
+    "prompt_preview": "Quick comparison: which role aligns better with career goals"
+  },
+  {
+    "timestamp": "2026-07-31T15:45:00+00:00",
+    "model": "claude-opus-5",
+    "provider": "anthropic",
+    "project_tag": "job-search-agent",
+    "input_tokens": 2100,
+    "output_tokens": 350,
+    "latency_ms": 2400,
+    "success": true,
+    "prompt_preview": "Prepare interview prep: likely questions for this company"
+  },
+  {
+    "timestamp": "2026-08-01T10:15:00+00:00",
+    "model": "claude-sonnet-5",
+    "provider": "anthropic",
+    "project_tag": "job-search-agent",
+    "input_tokens": 450,
+    "output_tokens": 160,
+    "latency_ms": 920,
+    "success": true,
+    "prompt_preview": "Score this job against my criteria (salary, growth, location)"
+  },
+  {
+    "timestamp": "2026-08-02T09:30:00+00:00",
+    "model": "claude-opus-5",
+    "provider": "anthropic",
+    "project_tag": "job-search-agent",
+    "input_tokens": 700,
+    "output_tokens": 0,
+    "latency_ms": 420,
+    "success": false,
+    "error": "429 Rate limit exceeded",
+    "prompt_preview": "Retry: Generate cover letter for startup role"
+  },
+  {
+    "timestamp": "2026-08-02T09:38:00+00:00",
+    "model": "claude-sonnet-5",
+    "provider": "anthropic",
+    "project_tag": "job-search-agent",
+    "input_tokens": 700,
+    "output_tokens": 290,
+    "latency_ms": 1100,
+    "success": true,
+    "prompt_preview": "Retry: Generate cover letter for startup role"
+  },
+  {
+    "timestamp": "2026-08-03T08:00:00+00:00",
+    "model": "gpt-5.6-luna",
+    "provider": "openai",
+    "project_tag": "job-search-agent",
+    "input_tokens": 320000,
+    "output_tokens": 450,
+    "latency_ms": 8200,
+    "success": true,
+    "prompt_preview": "ANOMALY: Long job description (320K tokens) with full company context"
+  }
+]
