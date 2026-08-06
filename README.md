@@ -296,9 +296,9 @@ Example exchanges in Claude Desktop:
 
 > **"Is any of this real?"** → `get_data_provenance()`
 > ```json
-> {"total_cost_usd": 0.205545, "billed_cost_usd": 0.004304,
->  "demo_cost_usd": 0.201241, "demo_percent_of_total": 97.91,
->  "calls_by_source": {"demo": 10, "live": 67}}
+> {"total_cost_usd": 0.205861, "billed_cost_usd": 0.004620,
+>  "demo_cost_usd": 0.201241, "demo_percent_of_total": 97.76,
+>  "calls_by_source": {"demo": 10, "live": 71}}
 > ```
 
 ---
@@ -409,14 +409,22 @@ below 1.0. The honest fix is to run the judge against at least one
 deliberately wrong answer and confirm it scores near 0.0 — that check doesn't
 exist yet in civil-prep's suite.
 
-Combined with `cost-watchdog-self` — this project's own real weekly digest,
-which made one genuine call to summarize its own database
-(326 in / 125 out tokens, $0.000083, via `claude-opus-5` were it configured;
-actually run on `gemini-flash-lite-latest` since that's the only provider with
-a live key) — the dashboard now carries three tracks side by side: one openly
-fake project for demo purposes, and two real ones. `civil-prep`'s calls show
-`source=live` and count toward its own budget; the fake `job-search-agent`
-data does not.
+Combined with `cost-watchdog-self` — this project's own real digest, run for
+real across every period it supports (`today`, `week`, `month`, `all_time`):
+5 genuine calls, 2,173 tokens, $0.000399, on `gemini-flash-lite-latest` since
+that's the only provider with a live key here (would route to `claude-opus-5`
+if `ANTHROPIC_API_KEY` were set — see `DIGEST_MODEL` in `src/digest.py`) — the
+dashboard now carries three tracks side by side: one openly fake project for
+demo purposes, and two real ones. `civil-prep`'s calls show `source=live` and
+count toward its own budget; the fake `job-search-agent` data does not.
+
+Worth being explicit about why `cost-watchdog-self` is the *smallest* real
+number here, not the largest: the digest is one summarization call per
+period. civil-prep runs a 3-call pipeline (retrieval + answer + two judges)
+for each of 25 questions — 66 calls. A single-call feature will always cost
+less than a 66-call pipeline; running the digest more times than it's
+actually useful to run just to outrank civil-prep's number would be exactly
+the kind of padding this section exists to refuse.
 
 ---
 
@@ -546,6 +554,6 @@ Stated plainly rather than hidden:
 
 - **Pricing is a snapshot.** Rates were verified against provider pricing pages in August 2026 and are hardcoded. There is no automatic refresh; when a vendor changes prices, `src/pricing.py` needs an edit. `python -m src.pricing` prints the whole table for review.
 - **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
-- **The shipped DB mixes one fake project with two real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, $0.2012, never billed). `civil-prep` (all 25 of its real eval questions, full answer + judge pipeline) and `cost-watchdog-self` are real (`source=live`, $0.0043 combined) — see [§8b](#8b-real-integration-tracking-civil-prep) and [§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project). At the time of writing that's 97.9% demo by dollar amount, because the fake project's one deliberately-planted long-context call costs more alone than all 67 real Gemini Flash-Lite calls combined; the call *count* split (10 demo vs 67 live) tells the more representative story. Run `python -m src.tracker --provenance` for the current numbers, and `--purge demo` to drop the fake project entirely.
+- **The shipped DB mixes one fake project with two real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, $0.2012, never billed). `civil-prep` (all 25 of its real eval questions, full answer + judge pipeline) and `cost-watchdog-self` (its digest, run for real across every period) are real (`source=live`, $0.0046 combined) — see [§8b](#8b-real-integration-tracking-civil-prep) and [§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project). At the time of writing that's 97.8% demo by dollar amount, because the fake project's one deliberately-planted long-context call costs more alone than all 71 real Gemini Flash-Lite calls combined; the call *count* split (10 demo vs 71 live) tells the more representative story. Run `python -m src.tracker --provenance` for the current numbers, and `--purge demo` to drop the fake project entirely.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
 - **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate — which is why every projection carries a `confidence` field.
