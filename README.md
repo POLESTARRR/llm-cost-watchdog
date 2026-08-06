@@ -561,6 +561,57 @@ off, never double-logs.
 
 ---
 
+## 8f. Persistence on a free host: SQLite locally, Turso when deployed
+
+Render's free tier has no persistent disk — every restart wipes anything
+written to the local filesystem, which would silently erase all tracked
+history. `src/turso_backend.py` swaps the storage backend to
+[Turso](https://turso.tech) (a hosted, SQLite-compatible database with a free
+tier) whenever `TURSO_DATABASE_URL` is set, with zero changes anywhere else in
+the codebase — `tracker.py`'s `_connect()` is the only integration point.
+
+This needed a real wrapper, not a drop-in swap: libsql's Python client returns
+plain tuples instead of `sqlite3.Row` (no `row["column"]` access, used
+everywhere in this codebase), has no `.row_factory` to opt into that, and its
+cursor isn't directly iterable the way `sqlite3.Cursor` is — three gaps
+`_TursoRow`/`_Cursor` close, each confirmed against a **real** Turso database
+rather than assumed from docs (the docs I could reach gave inconsistent
+package names and incomplete examples; guessing here would have meant
+silently wrong query results, not just an ImportError).
+
+**Verified for real, escalating to the exact production path:**
+1. Bare `libsql.connect()` + raw SQL against a live Turso database (caught the
+   tuple-vs-Row and iteration gaps)
+2. The actual `tracker.py`/`analyzer.py` functions (`init_db`, `log_usage`,
+   `get_events_for_period`, `compute_report`) imported and run for real against
+   that database
+3. The literal production container — built from this repo's own Dockerfile,
+   `linux/amd64` (Render's real architecture, not this dev machine's arm64),
+   running the real `uvicorn` `CMD` — with `curl` against `/health`,
+   `/provenance`, `/import`, and `/report` for real
+
+`libsql` is deliberately **not** in `requirements.txt` — its only prebuilt
+wheels are macOS and `manylinux x86_64`; there's no `linux/arm64` wheel and no
+macOS wheel for this repo's own dev interpreter (Python 3.14), so it fails to
+build from source on this exact machine (confirmed: no Rust toolchain, no
+`cc` linker). It's installed as a separate `RUN pip install` line in the
+Dockerfile instead, which only ever builds for `linux/amd64` — where a real
+wheel exists and the install is fast. Local dev and every test in this repo
+run on plain `sqlite3` unconditionally; `TURSO_DATABASE_URL` is read only
+inside `_connect()`, never at import time, so nothing locally needs `libsql`
+installed at all.
+
+**Where the credentials live, and why not `.env`:** Turso's URL and auth token
+are in `.env.render`, not `.env`. `load_dotenv()` loads `.env` into every local
+process including pytest — putting a remote-database switch in it means local
+dev and the test suite start silently hitting the real production database
+the instant it's set. This broke 155 tests immediately when first tried, which
+is exactly the failure mode `.env.render` (never loaded automatically, purely
+a reference for pasting into Render's environment-variable UI) exists to
+prevent. Both files are gitignored; the actual secrets are never committed.
+
+---
+
 ## 9. Local by default, deployable when you want a URL to share
 
 The MCP server always runs locally over stdio — that part is correct as-is, not
