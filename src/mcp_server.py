@@ -167,8 +167,10 @@ def list_providers() -> dict:
 
 @server.tool(
     description="Find spend that bought you nothing or could be stopped: failed-call waste, "
-                "duplicate prompts, missed prompt-caching opportunities, and frontier models "
-                "doing trivial work. Each finding ends in a concrete action."
+                "duplicate prompts, missed prompt-caching opportunities, frontier models doing "
+                "trivial work, and real traffic on a model with a cheaper same-vendor sibling "
+                "(re-priced on your actual calls, not gated by call length). Each finding ends "
+                "in a concrete action."
 )
 def find_waste(period: str = "week", source: str | None = None) -> dict:
     if period not in _VALID_PERIODS:

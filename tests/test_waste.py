@@ -7,6 +7,7 @@ from src.usage_schema import UsageEvent
 from src.waste import (
     find_cache_opportunities,
     find_duplicate_calls,
+    find_model_switch_savings,
     find_overpowered_calls,
     find_retry_waste,
     find_waste,
@@ -185,3 +186,62 @@ def test_find_waste_on_empty_db_is_safe(temp_db):
     assert w["total_spend_usd"] == 0.0
     assert w["recoverable_usd"] == 0.0
     assert w["recoverable_percent"] == 0.0
+
+
+# --- model switch ----------------------------------------------------------
+
+
+def test_model_switch_finds_real_savings(temp_db):
+    for _ in range(2):
+        _log(temp_db, model="claude-opus-5", inp=200_000, out=40_000, cost=2.0,
+             preview="Large real build-session turn re-sending accumulated context")
+
+    rows = find_model_switch_savings("all_time")
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["from_model"] == "claude-opus-5"
+    assert row["to_model"] == "claude-sonnet-5"
+    assert row["calls_repriced"] == 2
+    assert row["estimated_saving_usd"] > 1.0
+    assert "claude-opus-5" in row["action"] and "claude-sonnet-5" in row["action"]
+
+
+def test_model_switch_below_threshold_is_not_reported(temp_db):
+    _log(temp_db, model="claude-opus-5", inp=1000, out=200, cost=0.01,
+         preview="One small opus call, nowhere near the $1 reporting floor")
+
+    assert find_model_switch_savings("all_time") == []
+
+
+def test_model_switch_skips_models_without_a_configured_sibling(temp_db):
+    _log(temp_db, model="claude-haiku-4-5", inp=200_000, out=40_000, cost=2.0,
+         preview="Haiku is already the cheapest tier, nothing to downgrade to")
+
+    assert find_model_switch_savings("all_time") == []
+
+
+def test_model_switch_only_counts_successful_calls(temp_db):
+    _log(temp_db, model="claude-opus-5", inp=200_000, out=40_000, cost=2.0,
+         success=False,
+         preview="A failed opus call should not be repriced as a switch opportunity")
+
+    assert find_model_switch_savings("all_time") == []
+
+
+def test_find_waste_surfaces_model_switch_as_top_action_when_largest(temp_db):
+    for i in range(3):
+        _log(temp_db, model="claude-opus-5", inp=200_000, out=40_000, cost=2.0,
+             preview=f"Distinct real build-session turn number {i}, not a repeat")
+
+    w = find_waste("all_time")
+
+    assert "model_switches" in w
+    assert w["model_switches"], "expected at least one model-switch finding"
+    assert "claude-sonnet-5" in w["top_action"]
+
+
+def test_find_waste_model_switches_key_present_even_when_empty(temp_db):
+    w = find_waste("all_time")
+    assert w["model_switches"] == []
+    assert "model_switches" in w["recoverable_by_category"]

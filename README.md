@@ -232,19 +232,22 @@ fails identically everywhere, so retrying elsewhere just burns another call.
 ## 7. Finding waste
 
 `find_waste` answers the question a cost report can't: **which of this spend
-was avoidable?** Four checks, all computed from data already in SQLite — no
+was avoidable?** Five checks, all computed from data already in SQLite — no
 API calls, free to run:
 
 | Check | Finds |
 |---|---|
+| **Model switch** | Real spend on a model with a cheaper same-vendor sibling, re-priced on YOUR actual traffic via `what_if_switched` — not gated by call length, so it catches substantial work too |
 | **Retry waste** | Failed calls, the time they burned, and whether the failure rate is transient or structural |
 | **Duplicate calls** | The same prompt sent repeatedly — a missing cache or a loop re-asking |
 | **Cache opportunities** | Repeated large prompts never served from cache, priced at the model's real cached rate |
 | **Over-powered calls** | A frontier model doing trivial-length work, with a costed alternative |
 
-On this repo's own sample data it reports **24.5% of spend as recoverable**,
-with the top action spelled out: *"Enable prompt caching for
-cost-watchdog-self's claude-sonnet-5 calls (~$0.0936 this period)."*
+Against this repo's own real, imported Claude Code build-cost data (§8d) it
+reports **~60% of spend as recoverable**, with the top action sourced from a
+real re-pricing of real traffic: *"581 real claude-sonnet-5 call(s) cost
+$54.83; the same traffic on claude-haiku-4-5 would have cost $18.28 (67%
+less)."* — not a caching tip this time, a genuine model-tier finding.
 
 **The total is an upper bound, not a sum.** The categories overlap — a
 duplicated call is also a cache opportunity — so naively adding them can
@@ -608,6 +611,6 @@ Stated plainly rather than hidden:
 
 - **Pricing is a snapshot.** Rates were verified against provider pricing pages in August 2026 and are hardcoded. There is no automatic refresh; when a vendor changes prices, `src/pricing.py` needs an edit. `python -m src.pricing` prints the whole table for review.
 - **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
-- **The shipped DB mixes one fake project with real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, $0.2012, never billed) — everything else is real: `civil-prep` and `cost-watchdog-self` are real *runtime* usage (`source=live`, $0.0046 combined — see [§8b](#8b-real-integration-tracking-civil-prep)/[§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project)), and `llm-cost-watchdog-build` / `civil-prep-build` are real *build-time* Claude Code usage imported from local session transcripts (`source=manual`, $130.43 combined — see [§8d](#8d-what-it-actually-cost-to-build-these-projects-with-claude-code)). At the time of writing the fake project is 0.15% of total dollar amount — real data now dominates by three orders of magnitude, the opposite problem from where this project started. Run `python -m src.tracker --provenance` for the current numbers, and `--purge demo` to drop the fake project entirely.
+- **The shipped DB mixes one fake project with real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, ~$19.4, never billed — scaled up from an earlier ~$0.20 revision purely so it isn't dwarfed to invisibility next to real numbers 1000x its size; the labeling, badges, and filtering are unchanged, it's still openly fake). `llm-cost-watchdog-build` / `civil-prep-build` are real *build-time* Claude Code usage imported from local session transcripts (`source=manual`, ~$130 combined — see [§8d](#8d-what-it-actually-cost-to-build-these-projects-with-claude-code)). The small real *runtime* rows from [§8b](#8b-real-integration-tracking-civil-prep)/[§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project) (`civil-prep` / `cost-watchdog-self`, `source=live`, a few thousandths of a dollar) were removed from the shipped DB — several orders of magnitude smaller than build cost, they cluttered the Cost-by-Project view without changing the conclusion. The methodology and code are unchanged and reproducible; §8b/§8c describe what actually happened when they ran, they just aren't sitting in the current snapshot. Run `python -m src.tracker --provenance` for the live numbers, and `--purge demo` to drop the fake project entirely.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
 - **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate — which is why every projection carries a `confidence` field.

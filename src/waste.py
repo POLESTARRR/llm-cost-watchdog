@@ -3,13 +3,17 @@ Waste detection — spend that bought you nothing, and spend you could stop
 buying tomorrow.
 
 A cost report tells you *where* money went. It doesn't tell you which of it
-was avoidable. These four checks do, and each one ends in a concrete action
+was avoidable. These five checks do, and each one ends in a concrete action
 rather than an observation:
 
   1. Retry waste      — failed attempts, and the latency you paid for them
   2. Duplicate calls  — the same prompt sent repeatedly
   3. Cache misses     — repeated long prefixes never cached
-  4. Over-powered     — a frontier model doing trivial-length work
+  4. Over-powered      — a frontier model doing trivial-length work
+  5. Model switch      — real spend on a model with a cheaper same-vendor
+                          sibling, re-priced on YOUR actual traffic (not a
+                          trivial-length heuristic like #4 — this catches
+                          substantial, non-trivial work too)
 
 Everything here is computed from data already in SQLite. No API calls, no
 extra cost to run.
@@ -17,6 +21,7 @@ extra cost to run.
 
 from collections import Counter, defaultdict
 
+from src.analyzer import what_if_switched
 from src.pricing import PRICING_TABLE, calculate_cost, get_rates
 from src.tracker import get_events_for_period
 
@@ -40,6 +45,23 @@ _DOWNGRADE = {
     "openai": "gpt-5-nano",
     "google": "gemini-flash-lite-latest",
 }
+
+# One step down within the same vendor's family, for the model-switch check.
+# Unlike _DOWNGRADE this isn't gated on trivial call length — it re-prices
+# real, possibly substantial traffic and only reports what the actual
+# difference would have been.
+_SIBLING_DOWNGRADE = {
+    "claude-opus-5": "claude-sonnet-5",
+    "claude-sonnet-5": "claude-haiku-4-5",
+    "claude-fable-5": "claude-opus-5",
+    "gpt-5.6-sol": "gpt-5.6-luna",
+    "gpt-5.6-luna": "gpt-5-nano",
+    "gemini-pro-latest": "gemini-flash-latest",
+    "gemini-flash-latest": "gemini-flash-lite-latest",
+}
+
+# Below this, a switch isn't worth surfacing as an action.
+_MIN_SWITCH_SAVING_USD = 1.0
 
 
 def find_retry_waste(period: str = "week", source: str | None = None) -> dict:
@@ -232,17 +254,58 @@ def find_overpowered_calls(period: str = "week", source: str | None = None) -> l
     return rows
 
 
+def find_model_switch_savings(period: str = "week", source: str | None = None) -> list[dict]:
+    """What your real traffic on each model would have cost on its cheaper
+    same-vendor sibling — re-priced on the actual calls you made, not a
+    trivial-length heuristic.
+
+    Complements find_overpowered_calls(): that check only catches short,
+    simple calls on a frontier model. This one catches real, substantial
+    traffic too — a long build session that ran on Opus when Sonnet would
+    have done the same job for 40% less is exactly the case this exists for.
+    """
+    events = [e for e in get_events_for_period(period, source=source) if e.success]
+    models_present = {e.model for e in events}
+
+    rows = []
+    for frm, to in _SIBLING_DOWNGRADE.items():
+        if frm not in models_present or to not in PRICING_TABLE:
+            continue
+        result = what_if_switched(frm, to, period=period)
+        if result.get("verdict") == "cheaper" and result.get("savings_usd", 0) >= _MIN_SWITCH_SAVING_USD:
+            rows.append({
+                "from_model": frm,
+                "to_model": to,
+                "calls_repriced": result["calls_repriced"],
+                "actual_cost_usd": result["actual_cost_usd"],
+                "hypothetical_cost_usd": result["hypothetical_cost_usd"],
+                "estimated_saving_usd": round(result["savings_usd"], 6),
+                "savings_percent": result["savings_percent"],
+                "action": (
+                    f"{result['calls_repriced']} real {frm} call(s) cost "
+                    f"${result['actual_cost_usd']:.2f}; the same traffic on {to} "
+                    f"would have cost ${result['hypothetical_cost_usd']:.2f} "
+                    f"({result['savings_percent']:.0f}% less)."
+                ),
+            })
+
+    rows.sort(key=lambda r: r["estimated_saving_usd"], reverse=True)
+    return rows
+
+
 def find_waste(period: str = "week", source: str | None = None) -> dict:
     """Run every waste check and total the recoverable spend."""
     retries = find_retry_waste(period, source=source)
     duplicates = find_duplicate_calls(period, source=source)
     cache_ops = find_cache_opportunities(period, source=source)
     overpowered = find_overpowered_calls(period, source=source)
+    model_switches = find_model_switch_savings(period, source=source)
 
     by_category = {
         "duplicate_calls": sum(r["avoidable_cost_usd"] for r in duplicates),
         "cache_opportunities": sum(r["estimated_saving_usd"] for r in cache_ops),
         "overpowered_calls": sum(r["estimated_saving_usd"] for r in overpowered),
+        "model_switches": sum(r["estimated_saving_usd"] for r in model_switches),
     }
 
     total = compute_total(period, source=source)
@@ -274,7 +337,8 @@ def find_waste(period: str = "week", source: str | None = None) -> dict:
         "duplicate_calls": duplicates,
         "cache_opportunities": cache_ops,
         "overpowered_calls": overpowered,
-        "top_action": _top_action(duplicates, cache_ops, overpowered, retries),
+        "model_switches": model_switches,
+        "top_action": _top_action(duplicates, cache_ops, overpowered, retries, model_switches),
     }
 
 
@@ -282,9 +346,12 @@ def compute_total(period: str, source: str | None = None) -> float:
     return sum(e.cost_usd for e in get_events_for_period(period, source=source))
 
 
-def _top_action(duplicates, cache_ops, overpowered, retries) -> str:
+def _top_action(duplicates, cache_ops, overpowered, retries, model_switches=()) -> str:
     """The single highest-value thing to do, in plain language."""
     candidates = []
+    if model_switches:
+        m = model_switches[0]
+        candidates.append((m["estimated_saving_usd"], m["action"]))
     if cache_ops:
         c = cache_ops[0]
         candidates.append((c["estimated_saving_usd"],
