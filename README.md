@@ -296,9 +296,9 @@ Example exchanges in Claude Desktop:
 
 > **"Is any of this real?"** → `get_data_provenance()`
 > ```json
-> {"total_cost_usd": 0.202725, "billed_cost_usd": 0.001484,
->  "demo_cost_usd": 0.201241, "demo_percent_of_total": 99.27,
->  "calls_by_source": {"demo": 10, "live": 22}}
+> {"total_cost_usd": 0.205545, "billed_cost_usd": 0.004304,
+>  "demo_cost_usd": 0.201241, "demo_percent_of_total": 97.91,
+>  "calls_by_source": {"demo": 10, "live": 67}}
 > ```
 
 ---
@@ -364,23 +364,30 @@ those captured events were logged into this tracker's DB with
 `eval_questions.json`; the source documents were its own committed
 `data/raw/` articles. Nothing here is synthetic.
 
-**One evaluation pass, 7 real UPSC questions across all four GS papers:**
+**Every one of civil-prep's 25 committed eval questions, full pipeline, all four GS papers:**
 
 | Call type | Calls | Input tokens | Output tokens | Cost |
 |---|--:|--:|--:|--:|
-| Answer generation (retrieval + Gemini) | 7 | 4,097 | 322 | $0.000549 |
-| Faithfulness judge | 7 | 3,767 | 21 | $0.000420 |
-| Relevance judge | 7 | 3,041 | 21 | $0.000345 |
-| **Total** | **21** | **10,905** | **364** | **$0.001400** |
+| Answer generation (retrieval + Gemini) | 22 | 13,477 | 1,199 | $0.001827 |
+| Faithfulness judge | 22 | 11,771 | 66 | $0.001203 |
+| Relevance judge | 22 | 11,664 | 66 | $0.001193 |
+| **Total** | **66** | **36,912** | **1,331** | **$0.004224** |
 
-At ~$0.0002/question end-to-end (answer + both judge calls), 7 questions cost
-**less than a tenth of a cent** on `gemini-flash-lite-latest`. That's the real
-number, not a rounding trick — this is what a Gemini Flash-Lite RAG pipeline
-genuinely costs to run.
+Only 22 of 25 questions got an answer call — the other 3 fell below civil-prep's
+own 0.50 retrieval-confidence threshold and **correctly refused** rather than
+guessing (`ask.py`'s `CONFIDENCE_THRESHOLD` gate; see the code excerpt in
+§1). Those 3 still went through the judge — the faithfulness rubric explicitly
+scores an honest "I don't have enough information" as 1.0, and this run's
+judge agreed on all three, real evidence the refusal path is doing its job.
 
-**Something the waste detector caught that's worth stating honestly:** it flagged
-the answer-generation and judge calls as "duplicate prompts sent 9x / 6x."
-They aren't duplicates — they're 7 *different* questions and answers. The
+At ~$0.0002/question end-to-end (retrieval + answer + both judge calls), running
+every real eval question this system has cost **under half a cent total**.
+That's not a rounding trick — Gemini Flash-Lite genuinely is that cheap, and a
+tracker that reported a bigger number here would be reporting something false.
+
+**Something the waste detector caught that's worth stating honestly:** with a
+smaller sample it flagged the answer-generation and judge calls as "duplicate
+prompts." They aren't — they're 22 *different* questions and answers. The
 `find_duplicate_calls` heuristic groups by an 80-character `prompt_preview`
 (see `src/waste.py`'s `_MIN_PREVIEW_FOR_DUPLICATE`), and civil-prep's prompts
 open with a long fixed instruction template before the part that actually
@@ -390,6 +397,18 @@ run surfaced, not a bug it hid. The fix (hash the full prompt instead of
 previewing it) is straightforward but wasn't in the original spec; flagging it
 here rather than quietly working around it.
 
+**A second real, useful finding from the full run:** every one of the 44 judge
+calls (22 faithfulness + 22 relevance) scored a perfect 1.00. Across 22 varied
+questions spanning four different GS papers, a judge that never disagrees is
+itself worth being suspicious of — either civil-prep's retrieval is genuinely
+that precise (plausible; it only answers when confidence clears 0.50, so the
+sample is pre-filtered toward easy cases), or the judge model is too lenient
+to catch a subtly wrong answer. `eval.py`'s own `F1_THRESHOLD = 0.70` CI gate
+would not currently catch a regression, because nothing in this dataset scores
+below 1.0. The honest fix is to run the judge against at least one
+deliberately wrong answer and confirm it scores near 0.0 — that check doesn't
+exist yet in civil-prep's suite.
+
 Combined with `cost-watchdog-self` — this project's own real weekly digest,
 which made one genuine call to summarize its own database
 (326 in / 125 out tokens, $0.000083, via `claude-opus-5` were it configured;
@@ -398,6 +417,53 @@ a live key) — the dashboard now carries three tracks side by side: one openly
 fake project for demo purposes, and two real ones. `civil-prep`'s calls show
 `source=live` and count toward its own budget; the fake `job-search-agent`
 data does not.
+
+---
+
+## 8c. Portfolio survey: does this hold up across every real project?
+
+To check whether "small real numbers" is specific to civil-prep or a pattern,
+every other public repo on the same GitHub account was pulled via the GitHub
+API (`api.github.com/users/POLESTARRR/repos`) and checked for whether it
+calls an LLM provider **at all** — by grepping for provider SDK imports and
+API patterns, not by assumption:
+
+| Repo | Language | Calls an LLM (Anthropic/OpenAI/Google)? | Real tokens tracked |
+|---|---|---|---|
+| [`civil-prep`](https://github.com/POLESTARRR/civil-prep) | Python | **Yes** — Gemini, via its own `call_llm()` | 36,912 in / 1,331 out — $0.004224 |
+| `smart-clinic-project` | Java | **No.** `TokenService.java` is JWT auth (`io.jsonwebtoken`), unrelated to LLM tokens despite the filename. Grepped the whole repo for provider SDK patterns — zero matches. | $0 — not applicable |
+| `EMOTION-DETECTION` | Python | **No.** Calls IBM Watson's NLP emotion-classification endpoint (`sn-watson-emotion.labs.skills.network`) via plain `requests` — a hosted classifier, not a token-billed LLM. | $0 — not applicable |
+| `CODE-OF-CONDUCT` | Shell | **No.** A community-health template repo; its one script is a `bc`-based simple-interest calculator, unrelated to AI entirely. | $0 — not applicable |
+
+This is the honest answer to "why is civil-prep's number so small": it isn't
+that the tracking is fake — it's that **most of a real portfolio doesn't call
+an LLM at all**, and the one project that does uses a model priced at
+$0.10/$0.40 per million tokens. Both facts are real. Neither should be hidden
+to make a chart look busier.
+
+**What this means practically, project by project:**
+
+- **civil-prep** — already efficient (Flash-Lite, confidence-gated refusal,
+  citations on every answer). The one real gap the run surfaced: the
+  LLM-judge eval has no negative test (see §8b above) — add one deliberately
+  wrong answer to `eval_questions.json`'s test harness so a future regression
+  in retrieval quality can actually be caught by CI, not just a drop that
+  happens to also stay under a judge that's never seen a wrong answer.
+- **smart-clinic-project** — a pure CRUD hospital-management app today.
+  If an LLM feature were added later (e.g. drafting a visit summary from
+  structured appointment data), this tracker's `call_llm()` wrapper would
+  drop in with one import, same as civil-prep did — no LLM cost exists to
+  optimize because none is spent.
+- **EMOTION-DETECTION** — deliberately not migrated to an LLM here: IBM
+  Watson's classifier is free at this scale and purpose-built for the task;
+  swapping in an LLM would trade a $0 hosted classifier for a per-call cost
+  to do the same job, which is the opposite of what this project argues for.
+- **CODE-OF-CONDUCT** — a governance template; there is no scenario where
+  this should call an LLM, and it doesn't.
+
+That asymmetry — one project spending real, small, trackable money and three
+spending exactly nothing — is what a real portfolio actually looks like. The
+dashboard's `civil-prep` project tag reflects it without embellishment.
 
 ---
 
@@ -480,6 +546,6 @@ Stated plainly rather than hidden:
 
 - **Pricing is a snapshot.** Rates were verified against provider pricing pages in August 2026 and are hardcoded. There is no automatic refresh; when a vendor changes prices, `src/pricing.py` needs an edit. `python -m src.pricing` prints the whole table for review.
 - **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
-- **The shipped DB mixes one fake project with two real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, $0.2012, never billed). `civil-prep` and `cost-watchdog-self` are real (`source=live`, $0.0015 combined) — see [§8b](#8b-real-integration-tracking-civil-prep). At the time of writing that's 99.27% demo by dollar amount, because the fake project's one deliberately-planted long-context call costs more alone than 22 real Gemini Flash-Lite calls combined; the call *count* split (10 demo vs 22 live) tells the more representative story. Run `python -m src.tracker --provenance` for the current numbers, and `--purge demo` to drop the fake project entirely.
+- **The shipped DB mixes one fake project with two real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, $0.2012, never billed). `civil-prep` (all 25 of its real eval questions, full answer + judge pipeline) and `cost-watchdog-self` are real (`source=live`, $0.0043 combined) — see [§8b](#8b-real-integration-tracking-civil-prep) and [§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project). At the time of writing that's 97.9% demo by dollar amount, because the fake project's one deliberately-planted long-context call costs more alone than all 67 real Gemini Flash-Lite calls combined; the call *count* split (10 demo vs 67 live) tells the more representative story. Run `python -m src.tracker --provenance` for the current numbers, and `--purge demo` to drop the fake project entirely.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
 - **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate — which is why every projection carries a `confidence` field.
