@@ -7,6 +7,7 @@ google-generativeai==0.8.6
 mcp==2.0.0
 pydantic==2.13.4
 python-dotenv==1.2.2
+httpx==0.28.1  # also used by scripts/import_claude_code_usage.py --remote-url
 
 # --- Dashboard -------------------------------------------------------------
 fastapi==0.141.1
@@ -14,4 +15,3 @@ uvicorn==0.52.1
 
 # --- Tests -----------------------------------------------------------------
 pytest==9.1.1
-httpx==0.28.1

@@ -532,9 +532,50 @@ literal Claude Code history of this repo, not a hand-curated subset.
 
 ---
 
-## 9. Why this runs locally, not deployed
+## 8e. Adding a project after the dashboard is already deployed
 
-This is a personal MCP server, and running it locally over stdio is the standard, correct way to run one — not a limitation. Claude Desktop launches the process directly; there is no network hop, no hosting bill, and no reason for your personal spend data to leave your machine. The SQLite database and generated reports are gitignored for the same reason. The Docker setup exists to make the *dashboard* trivially demoable, not because the system needs a server. Total hosting cost: $0, by design.
+The workflow above assumes the importer runs next to the database. Once the
+*dashboard* is deployed to a public URL (§9) that's no longer true — the
+deployed copy has its own database, separate from whatever's on your laptop.
+`POST /import` closes that gap: point `import_claude_code_usage.py` at the
+live URL instead of a local path, and a deployed dashboard picks up a new
+project's real build cost immediately, no redeploy.
+
+```bash
+python scripts/import_claude_code_usage.py \
+    --session ~/.claude/projects/-path-to-new-project/<uuid>.jsonl \
+    --project-tag new-project-build \
+    --remote-url https://your-dashboard.example.com \
+    --import-key "$WATCHDOG_IMPORT_KEY"
+```
+
+The endpoint is closed by default — `WATCHDOG_IMPORT_KEY` unset means every
+request 403s, not merely-unauthenticated. Set it as a platform secret on the
+deployment (never commit it), and give the same value to `--import-key`
+locally. A wrong or missing key 401s. Cost is **always recomputed server-side**
+from `PRICING_TABLE` — the request body carries tokens and model, never a
+cost figure, so a leaked key can misreport volume but can't forge a dollar
+amount. Same message-id checkpoint and same-vendor dedup as the local path,
+so a partial network failure just means the next run picks up where it left
+off, never double-logs.
+
+---
+
+## 9. Local by default, deployable when you want a URL to share
+
+The MCP server always runs locally over stdio — that part is correct as-is, not
+a limitation to fix. Claude Desktop launches the process directly; there is no
+network hop, no hosting bill, and no reason your personal spend data needs to
+leave your machine for that half of this project. The SQLite database and
+generated reports stay gitignored for the same reason.
+
+The *dashboard* is a separate concern: `dashboard/app.py` is a normal FastAPI
+app, deployable anywhere that runs Python (Render, Railway, Fly.io, a VPS) with
+persistent storage for `data/usage.db`. Set `WATCHDOG_IMPORT_KEY` there as a
+platform secret to enable §8e's remote-import path, so it can be updated with
+a new project's real numbers after every deploy, not just at deploy time. The
+Docker setup makes a local run of it trivially demoable even without deploying
+anywhere; deploying it is opt-in, not required.
 
 ---
 
