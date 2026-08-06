@@ -80,10 +80,21 @@ BILLED_SOURCES = "live,manual"
 
 @contextmanager
 def _connect(db_path: str | None = None):
-    resolved = resolve_db_path(db_path)
-    Path(resolved).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(resolved)
-    conn.row_factory = sqlite3.Row
+    # A remote Turso database, when configured, always wins over any local
+    # db_path -- there's exactly one remote DB per deployment, so per-call
+    # path overrides (used by tests and CLI tools) don't apply to it. Local
+    # dev and the test suite never set TURSO_DATABASE_URL, so this branch
+    # is inert for them. See src/turso_backend.py for why a wrapper is
+    # needed at all rather than using libsql's connection directly.
+    turso_url = os.environ.get("TURSO_DATABASE_URL")
+    if turso_url:
+        from src.turso_backend import TursoConnection
+        conn = TursoConnection(turso_url, os.environ["TURSO_AUTH_TOKEN"])
+    else:
+        resolved = resolve_db_path(db_path)
+        Path(resolved).parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(resolved)
+        conn.row_factory = sqlite3.Row
     try:
         yield conn
         conn.commit()

@@ -5,6 +5,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Separate from requirements.txt on purpose -- see the comment there. This
+# image builds for linux/amd64 (Render's platform), where libsql ships a
+# real prebuilt wheel, so this stays a fast, no-compile install here even
+# though it can't go in the shared requirements file.
+RUN pip install --no-cache-dir libsql==0.1.11
+
 COPY src/ ./src/
 COPY dashboard/ ./dashboard/
 
