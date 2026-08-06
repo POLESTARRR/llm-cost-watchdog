@@ -8,10 +8,15 @@ The MCP server is the core deliverable; this exists so the same data can be
 inspected in a browser without Claude Desktop.
 """
 
+import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from dotenv import load_dotenv
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+load_dotenv()
 
 from src.analyzer import (
     check_budget_status,
@@ -21,16 +26,21 @@ from src.analyzer import (
     provider_breakdown,
 )
 from src.guard import guard_status
-from src.pricing import compare_models
+from src.pricing import PRICING_TABLE, calculate_cost, compare_models
 from src.waste import find_waste
 from src.providers import configured_providers
-from src.tracker import get_events_for_period, parse_sources, source_totals
+from src.tracker import get_events_for_period, log_usage, parse_sources, source_totals
+from src.usage_schema import Source, UsageEvent
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 PERIOD_RE = "^(today|week|month|all_time)$"
 
 # "all" | "live" | "demo" | "manual" | any comma-separated combination.
 SOURCE_RE = "^(all|(live|demo|manual)(,(live|demo|manual))*)$"
+
+# Set to enable remote import; unset means the endpoint is disabled entirely,
+# not merely unauthenticated. See scripts/import_claude_code_usage.py --remote-url.
+IMPORT_KEY = os.environ.get("WATCHDOG_IMPORT_KEY")
 
 app = FastAPI(title="LLM Cost Watchdog", version="2.1.0")
 
@@ -128,6 +138,90 @@ def calls(
     """Most recent calls first, for the dashboard's activity table."""
     events = get_events_for_period(period, source=_source(source))
     return [e.model_dump() for e in reversed(events)][:limit]
+
+
+class ImportEvent(BaseModel):
+    """One usage row from a remote import client. Deliberately mirrors
+    UsageEvent's fields rather than reusing it directly — this is a
+    request-body contract at a trust boundary, not an internal type, and it
+    omits `id` and `cost_usd`: the id is server-assigned, and cost is always
+    recomputed server-side (see import_events) rather than trusted from the
+    caller, so a leaked key can misreport tokens but can't forge a cost.
+    """
+    model: str
+    provider: str = "unknown"
+    project_tag: str = "default"
+    input_tokens: int
+    output_tokens: int
+    cached_input_tokens: int = 0
+    cache_write_tokens: int = 0
+    latency_ms: float = 0.0
+    prompt_preview: str = ""
+    success: bool = True
+    error: str | None = None
+    source: Source = "manual"
+    timestamp: str | None = None  # None -> now, at insert time
+
+
+class ImportPayload(BaseModel):
+    events: list[ImportEvent]
+
+
+@app.post("/import")
+def import_events(
+    payload: ImportPayload,
+    x_watchdog_import_key: str | None = Header(default=None),
+) -> dict:
+    """Remote sink for scripts/import_claude_code_usage.py --remote-url, so a
+    deployed dashboard's data can be updated without redeploying: run the
+    import script anywhere with this URL and key, and the live site reflects
+    it on the next page load.
+
+    Disabled entirely (403) unless WATCHDOG_IMPORT_KEY is set in this
+    deployment's environment -- there is no such thing as a default-open
+    write endpoint here. Cost is always recomputed from tokens via this
+    project's own pricing table, never trusted from the request body.
+    """
+    if not IMPORT_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Remote import is disabled on this deployment (WATCHDOG_IMPORT_KEY is not set).",
+        )
+    if x_watchdog_import_key != IMPORT_KEY:
+        raise HTTPException(status_code=401, detail="Missing or invalid X-Watchdog-Import-Key header.")
+
+    logged = 0
+    skipped_unpriced = 0
+    total_cost = 0.0
+    for e in payload.events:
+        if e.model not in PRICING_TABLE:
+            skipped_unpriced += 1
+            continue
+        cost = (
+            calculate_cost(e.model, e.input_tokens, e.output_tokens, e.cached_input_tokens, e.cache_write_tokens)
+            if e.success else 0.0
+        )
+        event = UsageEvent(
+            model=e.model,
+            provider=e.provider,
+            project_tag=e.project_tag,
+            input_tokens=e.input_tokens,
+            output_tokens=e.output_tokens,
+            cached_input_tokens=e.cached_input_tokens,
+            cache_write_tokens=e.cache_write_tokens,
+            cost_usd=cost,
+            latency_ms=e.latency_ms,
+            prompt_preview=e.prompt_preview,
+            success=e.success,
+            error=e.error,
+            source=e.source,
+            **({"timestamp": e.timestamp} if e.timestamp else {}),
+        )
+        log_usage(event)
+        logged += 1
+        total_cost += cost
+
+    return {"logged": logged, "skipped_unpriced": skipped_unpriced, "total_cost_usd": round(total_cost, 6)}
 
 
 # Mounted last so the API routes above take precedence over the static catch-all.

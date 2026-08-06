@@ -232,3 +232,109 @@ def test_index_has_a_source_filter_and_provenance_banner(client):
     assert 'id="source"' in html
     assert 'id="provenance"' in html
     assert 'value="live,manual"' in html
+
+
+# --- /import (remote ingest for build-cost imports) ------------------------
+
+
+@pytest.fixture
+def import_key(monkeypatch):
+    """Enable the /import endpoint for a test by patching the module-level
+    IMPORT_KEY directly -- it's read from the environment once at import
+    time, so a plain monkeypatch.setenv after that point has no effect.
+    """
+    import dashboard.app as dashboard_app
+    monkeypatch.setattr(dashboard_app, "IMPORT_KEY", "test-import-key")
+    return "test-import-key"
+
+
+def _import_event(**overrides):
+    event = {
+        "model": "claude-sonnet-5",
+        "provider": "anthropic",
+        "project_tag": "some-project-build",
+        "input_tokens": 10_000,
+        "output_tokens": 2_000,
+    }
+    event.update(overrides)
+    return event
+
+
+def test_import_disabled_without_key(client, monkeypatch):
+    # Explicitly force the "not configured" state -- relying on the ambient
+    # environment not having WATCHDOG_IMPORT_KEY set is fragile (exactly
+    # this test broke the moment a real deployment key was added to .env
+    # for manual testing).
+    import dashboard.app as dashboard_app
+    monkeypatch.setattr(dashboard_app, "IMPORT_KEY", None)
+
+    res = client.post("/import", json={"events": [_import_event()]})
+    assert res.status_code == 403
+
+
+def test_import_rejects_wrong_key(client, import_key):
+    res = client.post(
+        "/import", json={"events": [_import_event()]},
+        headers={"X-Watchdog-Import-Key": "wrong-key"},
+    )
+    assert res.status_code == 401
+
+
+def test_import_rejects_missing_key_header(client, import_key):
+    res = client.post("/import", json={"events": [_import_event()]})
+    assert res.status_code == 401
+
+
+def test_import_logs_events_with_correct_key(client, import_key):
+    res = client.post(
+        "/import", json={"events": [_import_event()]},
+        headers={"X-Watchdog-Import-Key": import_key},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["logged"] == 1
+    assert body["total_cost_usd"] > 0
+
+    calls = client.get("/calls?period=all_time&limit=5&source=manual").json()
+    assert any(c["project_tag"] == "some-project-build" for c in calls)
+
+
+def test_import_recomputes_cost_server_side(client, import_key):
+    """The request body has no cost field at all -- cost always comes from
+    this project's own pricing table, never the caller."""
+    from src.pricing import calculate_cost
+
+    res = client.post(
+        "/import", json={"events": [_import_event(input_tokens=50_000, output_tokens=5_000)]},
+        headers={"X-Watchdog-Import-Key": import_key},
+    )
+    expected = calculate_cost("claude-sonnet-5", 50_000, 5_000)
+    assert res.json()["total_cost_usd"] == pytest.approx(expected, rel=1e-6)
+
+
+def test_import_skips_models_with_no_pricing(client, import_key):
+    res = client.post(
+        "/import", json={"events": [_import_event(model="not-a-real-model")]},
+        headers={"X-Watchdog-Import-Key": import_key},
+    )
+    body = res.json()
+    assert body["logged"] == 0
+    assert body["skipped_unpriced"] == 1
+
+
+def test_import_failed_call_costs_nothing(client, import_key):
+    res = client.post(
+        "/import", json={"events": [_import_event(success=False, output_tokens=0)]},
+        headers={"X-Watchdog-Import-Key": import_key},
+    )
+    assert res.json()["total_cost_usd"] == 0.0
+
+
+def test_import_defaults_source_to_manual(client, import_key):
+    client.post(
+        "/import", json={"events": [_import_event()]},
+        headers={"X-Watchdog-Import-Key": import_key},
+    )
+    calls = client.get("/calls?period=all_time&limit=5&source=manual").json()
+    matching = [c for c in calls if c["project_tag"] == "some-project-build"]
+    assert matching and matching[0]["source"] == "manual"

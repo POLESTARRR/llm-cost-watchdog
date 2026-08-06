@@ -24,17 +24,32 @@ timestamps, not "now".
 
     # Find your session files:
     ls ~/.claude/projects/*/*.jsonl
+
+By default this writes straight to the local SQLite file. Pass --remote-url
+(plus --import-key) to push to a deployed dashboard's /import endpoint
+instead — e.g. a live site updates the moment you run this, no redeploy:
+
+    python scripts/import_claude_code_usage.py \\
+        --session ~/.claude/projects/-path-to-project/<uuid>.jsonl \\
+        --project-tag my-project-build \\
+        --remote-url https://your-dashboard.example.com \\
+        --import-key "$WATCHDOG_IMPORT_KEY"
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+
+import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.pricing import calculate_cost, PRICING_TABLE
-from src.tracker import get_events, log_usage
+from src.tracker import log_usage
 from src.usage_schema import UsageEvent
+
+_REMOTE_BATCH_SIZE = 200
 
 # Claude Code's own model ids, mapped to this project's pricing table keys.
 # Extend as new models appear in a transcript; anything not listed here (or
@@ -65,13 +80,43 @@ def _checkpoint_path(transcript_path: str) -> Path:
     return p.parent / f".{p.stem}.imported.json"
 
 
-def load(path: str, project_tag: str, db_path: str | None = None) -> dict:
+def _push_remote(events: list[dict], remote_url: str, import_key: str) -> dict:
+    """POST events to a deployed dashboard's /import endpoint, in batches.
+    Raises on any non-2xx response rather than silently dropping a batch --
+    a partial import that looks successful is worse than a loud failure.
+    """
+    logged = total_cost = skipped = 0
+    with httpx.Client(base_url=remote_url.rstrip("/"), timeout=30.0) as client:
+        for i in range(0, len(events), _REMOTE_BATCH_SIZE):
+            batch = events[i:i + _REMOTE_BATCH_SIZE]
+            resp = client.post(
+                "/import",
+                json={"events": batch},
+                headers={"X-Watchdog-Import-Key": import_key},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            logged += body["logged"]
+            skipped += body["skipped_unpriced"]
+            total_cost += body["total_cost_usd"]
+    return {"logged": logged, "skipped_no_price": skipped, "total_cost": total_cost}
+
+
+def load(
+    path: str,
+    project_tag: str,
+    db_path: str | None = None,
+    remote_url: str | None = None,
+    import_key: str | None = None,
+) -> dict:
     checkpoint = _checkpoint_path(path)
     seen_ids = set(json.loads(checkpoint.read_text())) if checkpoint.exists() else set()
     already_imported = len(seen_ids)
-    logged = 0
+    new_ids: list[str] = []
+    pending: list[dict] = []  # for --remote-url; local writes happen inline below
     skipped_no_price = 0
     skipped_synthetic = 0
+    logged = 0
     total_cost = 0.0
     total_tokens = 0
 
@@ -89,9 +134,8 @@ def load(path: str, project_tag: str, db_path: str | None = None) -> dict:
 
             msg = d.get("message", {})
             mid = msg.get("id")
-            if not mid or mid in seen_ids:
+            if not mid or mid in seen_ids or mid in new_ids:
                 continue
-            seen_ids.add(mid)
 
             usage = msg.get("usage")
             model_raw = msg.get("model")
@@ -113,27 +157,44 @@ def load(path: str, project_tag: str, db_path: str | None = None) -> dict:
             full_input = raw_input + cache_read + cache_write
 
             cost = calculate_cost(model, full_input, output, cache_read, cache_write)
-
-            event = UsageEvent(
-                model=model,
-                provider="anthropic",
-                project_tag=project_tag,
-                input_tokens=full_input,
-                output_tokens=output,
-                cached_input_tokens=cache_read,
-                cache_write_tokens=cache_write,
-                cost_usd=cost,
-                latency_ms=0.0,  # not recorded per-turn in the transcript
-                prompt_preview=_preview(msg),
-                success=True,
-                source="manual",
-                timestamp=d.get("timestamp"),
-            )
-            log_usage(event, db_path=db_path)
-            logged += 1
             total_cost += cost
             total_tokens += full_input + output
+            new_ids.append(mid)
 
+            if remote_url:
+                pending.append({
+                    "model": model, "provider": "anthropic", "project_tag": project_tag,
+                    "input_tokens": full_input, "output_tokens": output,
+                    "cached_input_tokens": cache_read, "cache_write_tokens": cache_write,
+                    "latency_ms": 0.0, "prompt_preview": _preview(msg),
+                    "success": True, "source": "manual", "timestamp": d.get("timestamp"),
+                })
+            else:
+                event = UsageEvent(
+                    model=model,
+                    provider="anthropic",
+                    project_tag=project_tag,
+                    input_tokens=full_input,
+                    output_tokens=output,
+                    cached_input_tokens=cache_read,
+                    cache_write_tokens=cache_write,
+                    cost_usd=cost,
+                    latency_ms=0.0,  # not recorded per-turn in the transcript
+                    prompt_preview=_preview(msg),
+                    success=True,
+                    source="manual",
+                    timestamp=d.get("timestamp"),
+                )
+                log_usage(event, db_path=db_path)
+            logged += 1
+
+    # Only commit the checkpoint after the write actually succeeds -- a failed
+    # remote push must leave these turns eligible for retry on the next run,
+    # not silently marked as already-imported.
+    if remote_url and pending:
+        _push_remote(pending, remote_url, import_key)
+
+    seen_ids.update(new_ids)
     checkpoint.write_text(json.dumps(sorted(seen_ids)))
 
     return {
@@ -150,15 +211,27 @@ def _main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--session", required=True, help="Path to a Claude Code session .jsonl file")
     parser.add_argument("--project-tag", required=True, help="Project tag to log these events under")
-    parser.add_argument("--db-path", default=None, help="Override the SQLite DB path")
+    parser.add_argument("--db-path", default=None, help="Override the local SQLite DB path (ignored with --remote-url)")
+    parser.add_argument("--remote-url", default=None,
+                         help="Push to a deployed dashboard's /import endpoint instead of writing locally, "
+                              "e.g. https://your-dashboard.example.com")
+    parser.add_argument("--import-key", default=None,
+                         help="Value of WATCHDOG_IMPORT_KEY on the remote deployment. "
+                              "Defaults to the WATCHDOG_IMPORT_KEY env var if not given.")
     args = parser.parse_args()
 
     path = Path(args.session).expanduser()
     if not path.exists():
         parser.error(f"session file not found: {path}")
 
-    stats = load(str(path), args.project_tag, db_path=args.db_path)
-    print(f"logged={stats['logged']} new turns  tokens={stats['total_tokens']:,}  cost=${stats['total_cost']:.4f}"
+    import_key = args.import_key or os.environ.get("WATCHDOG_IMPORT_KEY")
+    if args.remote_url and not import_key:
+        parser.error("--remote-url requires --import-key (or a WATCHDOG_IMPORT_KEY env var)")
+
+    stats = load(str(path), args.project_tag, db_path=args.db_path,
+                 remote_url=args.remote_url, import_key=import_key)
+    sink = f"remote: {args.remote_url}" if args.remote_url else "local DB"
+    print(f"[{sink}] logged={stats['logged']} new turns  tokens={stats['total_tokens']:,}  cost=${stats['total_cost']:.4f}"
           + (f"  ({stats['already_imported']} already imported, skipped)" if stats["already_imported"] else ""))
     if stats["skipped_no_price"]:
         print(f"  ({stats['skipped_no_price']} turns skipped: model not in PRICING_TABLE)")
