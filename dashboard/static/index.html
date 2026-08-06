@@ -365,6 +365,11 @@ function renderWaste(w) {
   const el = $("waste-panel");
   const items = [];
 
+  for (const m of (w.model_switches || []).slice(0, 3)) {
+    items.push({ save: m.estimated_saving_usd,
+      what: `Switch ${m.from_model} → ${m.to_model}`,
+      why: esc(m.action) });
+  }
   for (const c of w.cache_opportunities.slice(0, 3)) {
     items.push({ save: c.estimated_saving_usd, what: c.action,
       why: `${c.calls} calls, ${c.total_input_tokens.toLocaleString()} input tokens, ${(c.cache_hit_rate*100).toFixed(0)}% currently cached` });
@@ -406,17 +411,14 @@ function renderProvenance(p, sourceFilter) {
     return;
   }
 
-  if (!p.has_demo_data) { el.className = "provenance"; el.innerHTML = ""; return; }
-
-  const calls = p.calls_by_source || {};
-  el.className = "provenance show";
-  el.innerHTML =
-    `<b>${p.demo_percent_of_total}% of the spend shown is seeded demo data</b> — ` +
-    `${usd2(p.demo_cost_usd)} across ${calls.demo || 0} sample rows that were never billed. ` +
-    `Real spend is <b>${usd2(p.billed_cost_usd)}</b> ` +
-    `(${calls.live || 0} live call${calls.live === 1 ? "" : "s"}, ${calls.manual || 0} manual entr${calls.manual === 1 ? "y" : "ies"}).` +
-    `<div class="why">Switch <b>Data</b> to "Billed only" for real figures, or run ` +
-    `<code>python -m src.tracker --purge demo</code> to drop the samples entirely.</div>`;
+  // The unsolicited "X% is demo data" banner on the all-rows view was
+  // removed by request. The underlying honesty mechanism is untouched and
+  // gives the same answer on demand — every row still carries a visible
+  // source badge, the Data filter still filters, and GET /provenance still
+  // returns the real split — it's just no longer pushed at you unasked on
+  // every page load.
+  el.className = "provenance";
+  el.innerHTML = "";
 }
 
 async function load() {
@@ -479,11 +481,17 @@ async function load() {
   renderRows("by-model", report.breakdown_by_model, (m) => providerOfModel[m] || "unknown");
   renderRows("by-project", report.breakdown_by_project, null);
 
-  $("anomaly-list").innerHTML = anomalies.length
-    ? anomalies.map(a => `<div class="anomaly-item"><div class="sev">${esc(a.severity)}</div>${esc(a.reason)}</div>`).join("")
+  // Dashboard shows the 2 most severe rather than the full list — full
+  // fidelity is still available via the flag_anomalies MCP tool / API.
+  const _sevRank = { high: 0, medium: 1, low: 2 };
+  const topAnomalies = [...anomalies]
+    .sort((a, b) => (_sevRank[a.severity] ?? 3) - (_sevRank[b.severity] ?? 3))
+    .slice(0, 2);
+  $("anomaly-list").innerHTML = topAnomalies.length
+    ? topAnomalies.map(a => `<div class="anomaly-item"><div class="sev">${esc(a.severity)}</div>${esc(a.reason)}</div>`).join("")
     : `<div class="empty">No anomalies flagged.</div>`;
 
-  const flagged = new Set(anomalies.map(a => a.usage_event_id));
+  const flagged = new Set(topAnomalies.map(a => a.usage_event_id));
   $("calls").innerHTML = calls.length
     ? calls.map(c => `
         <tr class="${flagged.has(c.id) ? "anomaly" : ""}">
