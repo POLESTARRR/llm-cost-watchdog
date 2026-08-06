@@ -296,9 +296,9 @@ Example exchanges in Claude Desktop:
 
 > **"Is any of this real?"** → `get_data_provenance()`
 > ```json
-> {"total_cost_usd": 0.205861, "billed_cost_usd": 0.004620,
->  "demo_cost_usd": 0.201241, "demo_percent_of_total": 97.76,
->  "calls_by_source": {"demo": 10, "live": 71}}
+> {"total_cost_usd": 130.635655, "billed_cost_usd": 130.434414,
+>  "demo_cost_usd": 0.201241, "demo_percent_of_total": 0.15,
+>  "calls_by_source": {"demo": 10, "live": 71, "manual": 929}}
 > ```
 
 ---
@@ -475,6 +475,60 @@ dashboard's `civil-prep` project tag reflects it without embellishment.
 
 ---
 
+## 8d. What it actually cost to *build* these projects with Claude Code
+
+Everything above is *runtime* cost — what civil-prep and this project's own
+digest spend when they run. There's a second real number this project can
+answer that nothing above captures: what did it cost, in real Anthropic
+tokens, to **build** them in the first place? Claude Code writes a local
+transcript for every session (`~/.claude/projects/<project>/<session-id>.jsonl`),
+and every assistant turn in it carries the actual `usage` block from the real
+API response Claude received — the same authoritative source every other
+`source=live` row in this project is priced from. `scripts/import_claude_code_usage.py`
+reads that transcript directly and logs each turn as `source="manual"` (real
+spend, reconstructed from an existing record rather than measured live by
+this project's own wrapper — Claude Code isn't calling itself through this
+codebase, so `call_llm()` never sees these turns), with the turn's real
+historical timestamp, deduped by the API response's own message id so
+re-running on a transcript that's grown only imports what's new.
+
+```bash
+python scripts/import_claude_code_usage.py \
+    --session ~/.claude/projects/-path-to-project/<uuid>.jsonl \
+    --project-tag my-project-build
+```
+
+Run against the two sessions that actually built these two projects:
+
+| Project | Real Claude Code turns | Tokens | Cost |
+|---|--:|--:|--:|
+| `llm-cost-watchdog-build` (this repo) | 512 | 153,682,543 | $90.2029 |
+| `civil-prep-build` (the separate session that built civil-prep) | 417 | 89,582,158 | $40.2268 |
+| **Total build cost** | **929** | **243,264,701** | **$130.4298** |
+
+That dwarfs the $0.0046 these two projects have cost to *run* — **by a factor
+of about 28,000**. Both numbers are real; they answer different questions.
+Building an app with an agentic coding tool costs vastly more than running
+the finished app, because building means many long turns re-sending a large,
+growing context (this is also why 97% of the Anthropic spend above is
+cache-read, not fresh input — Claude Code aggressively caches conversation
+history, and the dashboard's own "saved by caching" figure now reflects that
+directly). Neither figure should stand in for the other, and this project
+tracks both rather than picking the one that looks better.
+
+**Caveats, stated plainly:** these rows carry `latency_ms=0` — the transcript
+doesn't record per-turn wall-clock time, and zero is the honest value for
+"not measured," not a guess. The cache-write premium uses this project's
+existing flat `CACHE_WRITE_MULTIPLIER = 1.25`, which is accurate for
+Anthropic's 5-minute ephemeral cache but understates the real premium on
+1-hour ephemeral writes (most of what these sessions used) — meaning the true
+Anthropic invoice is likely somewhat *higher* than $130.43, not lower. And the
+`llm-cost-watchdog-build` session's transcript also contains this section's
+own writing and the earlier civil-prep integration work (§8b/§8c) — it is the
+literal Claude Code history of this repo, not a hand-curated subset.
+
+---
+
 ## 9. Why this runs locally, not deployed
 
 This is a personal MCP server, and running it locally over stdio is the standard, correct way to run one — not a limitation. Claude Desktop launches the process directly; there is no network hop, no hosting bill, and no reason for your personal spend data to leave your machine. The SQLite database and generated reports are gitignored for the same reason. The Docker setup exists to make the *dashboard* trivially demoable, not because the system needs a server. Total hosting cost: $0, by design.
@@ -554,6 +608,6 @@ Stated plainly rather than hidden:
 
 - **Pricing is a snapshot.** Rates were verified against provider pricing pages in August 2026 and are hardcoded. There is no automatic refresh; when a vendor changes prices, `src/pricing.py` needs an edit. `python -m src.pricing` prints the whole table for review.
 - **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
-- **The shipped DB mixes one fake project with two real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, $0.2012, never billed). `civil-prep` (all 25 of its real eval questions, full answer + judge pipeline) and `cost-watchdog-self` (its digest, run for real across every period) are real (`source=live`, $0.0046 combined) — see [§8b](#8b-real-integration-tracking-civil-prep) and [§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project). At the time of writing that's 97.8% demo by dollar amount, because the fake project's one deliberately-planted long-context call costs more alone than all 71 real Gemini Flash-Lite calls combined; the call *count* split (10 demo vs 71 live) tells the more representative story. Run `python -m src.tracker --provenance` for the current numbers, and `--purge demo` to drop the fake project entirely.
+- **The shipped DB mixes one fake project with real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, $0.2012, never billed) — everything else is real: `civil-prep` and `cost-watchdog-self` are real *runtime* usage (`source=live`, $0.0046 combined — see [§8b](#8b-real-integration-tracking-civil-prep)/[§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project)), and `llm-cost-watchdog-build` / `civil-prep-build` are real *build-time* Claude Code usage imported from local session transcripts (`source=manual`, $130.43 combined — see [§8d](#8d-what-it-actually-cost-to-build-these-projects-with-claude-code)). At the time of writing the fake project is 0.15% of total dollar amount — real data now dominates by three orders of magnitude, the opposite problem from where this project started. Run `python -m src.tracker --provenance` for the current numbers, and `--purge demo` to drop the fake project entirely.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
 - **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate — which is why every projection carries a `confidence` field.
