@@ -100,11 +100,15 @@ cp .env.example .env                # add whichever provider keys you use
 
 You only need keys for providers you actually call — a missing key disables that provider, it doesn't break the tracker.
 
-Load the synthetic sample data so there's something to look at:
+Load one illustrative fake project so there's something to look at:
 
 ```bash
-python -m src.tracker --batch-load sample_usage.json
+python -m src.tracker --batch-load demo_job_search_agent.json
 ```
+
+(`sample_usage.json` is a *separate* file — it's the pytest fixture with
+planted anomalies, not demo content; don't load it into a DB you're using
+day to day.)
 
 These rows land tagged `source=demo`. They are never counted against your
 budget, they can't trip a guardrail, and the dashboard states on its face how
@@ -292,9 +296,9 @@ Example exchanges in Claude Desktop:
 
 > **"Is any of this real?"** → `get_data_provenance()`
 > ```json
-> {"total_cost_usd": 0.476797, "billed_cost_usd": 0.006593,
->  "demo_cost_usd": 0.470204, "demo_percent_of_total": 98.62,
->  "calls_by_source": {"demo": 44, "manual": 4, "live": 5}}
+> {"total_cost_usd": 0.202725, "billed_cost_usd": 0.001484,
+>  "demo_cost_usd": 0.201241, "demo_percent_of_total": 99.27,
+>  "calls_by_source": {"demo": 10, "live": 22}}
 > ```
 
 ---
@@ -302,9 +306,11 @@ Example exchanges in Claude Desktop:
 ## 8a. Provenance — is this number real?
 
 A cost tracker whose figures can't be traced back to a billed API call is worse
-than no tracker: it reports confident fiction. This repo ships with
-`sample_usage.json` so the dashboard isn't empty on first run, which means the
-headline figure is mostly invented until you generate traffic of your own.
+than no tracker: it reports confident fiction. This repo ships with one
+illustrative fake project (`demo_job_search_agent.json`, a job-search agent —
+no such project exists, it's shaped like one to be a believable demo) so the
+dashboard isn't empty on first run. Everything else in the DB — `civil-prep`
+and `cost-watchdog-self` below — is real traffic, not invented.
 
 Rather than hide that, every row carries a `source`:
 
@@ -337,6 +343,61 @@ Once you have real traffic, drop the samples:
 python -m src.tracker --provenance      # what's real right now
 python -m src.tracker --purge demo      # delete seeded rows, keep billed history
 ```
+
+---
+
+## 8b. Real integration: tracking [civil-prep](https://github.com/POLESTARRR/civil-prep)
+
+The rest of this README's examples are the shipped fake project. This section
+isn't — it's what happened when this tracker was pointed at a second, unrelated
+real project: **civil-prep**, a UPSC current-affairs RAG system with its own
+retrieval store, its own eval harness, and its own `call_llm()` wrapper (Gemini
+only, no relation to this project's multi-provider one).
+
+civil-prep's own `src/utils.py::call_llm()` doesn't log anywhere — it just
+returns text. To measure it without changing its behavior, its `call_llm` was
+wrapped for one run to capture what the Gemini SDK *itself* reports on
+`response.usage_metadata` (`prompt_token_count`, `candidates_token_count`) —
+not an estimate from `len(prompt) // 4`, the provider's own accounting — and
+those captured events were logged into this tracker's DB with
+`source="live"`. The questions were civil-prep's own committed
+`eval_questions.json`; the source documents were its own committed
+`data/raw/` articles. Nothing here is synthetic.
+
+**One evaluation pass, 7 real UPSC questions across all four GS papers:**
+
+| Call type | Calls | Input tokens | Output tokens | Cost |
+|---|--:|--:|--:|--:|
+| Answer generation (retrieval + Gemini) | 7 | 4,097 | 322 | $0.000549 |
+| Faithfulness judge | 7 | 3,767 | 21 | $0.000420 |
+| Relevance judge | 7 | 3,041 | 21 | $0.000345 |
+| **Total** | **21** | **10,905** | **364** | **$0.001400** |
+
+At ~$0.0002/question end-to-end (answer + both judge calls), 7 questions cost
+**less than a tenth of a cent** on `gemini-flash-lite-latest`. That's the real
+number, not a rounding trick — this is what a Gemini Flash-Lite RAG pipeline
+genuinely costs to run.
+
+**Something the waste detector caught that's worth stating honestly:** it flagged
+the answer-generation and judge calls as "duplicate prompts sent 9x / 6x."
+They aren't duplicates — they're 7 *different* questions and answers. The
+`find_duplicate_calls` heuristic groups by an 80-character `prompt_preview`
+(see `src/waste.py`'s `_MIN_PREVIEW_FOR_DUPLICATE`), and civil-prep's prompts
+open with a long fixed instruction template before the part that actually
+varies per call. Against a system with static, template-heavy prompts, an
+80-char preview isn't enough to tell two calls apart — a real limitation this
+run surfaced, not a bug it hid. The fix (hash the full prompt instead of
+previewing it) is straightforward but wasn't in the original spec; flagging it
+here rather than quietly working around it.
+
+Combined with `cost-watchdog-self` — this project's own real weekly digest,
+which made one genuine call to summarize its own database
+(326 in / 125 out tokens, $0.000083, via `claude-opus-5` were it configured;
+actually run on `gemini-flash-lite-latest` since that's the only provider with
+a live key) — the dashboard now carries three tracks side by side: one openly
+fake project for demo purposes, and two real ones. `civil-prep`'s calls show
+`source=live` and count toward its own budget; the fake `job-search-agent`
+data does not.
 
 ---
 
@@ -419,6 +480,6 @@ Stated plainly rather than hidden:
 
 - **Pricing is a snapshot.** Rates were verified against provider pricing pages in August 2026 and are hardcoded. There is no automatic refresh; when a vendor changes prices, `src/pricing.py` needs an edit. `python -m src.pricing` prints the whole table for review.
 - **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
-- **Most of the shipped data is seeded.** Out of the box the DB is `sample_usage.json` plus whatever you generate. At the time of writing that is 44 demo rows ($0.4702) against 5 live calls and 4 manual entries ($0.0066) — 98.62% demo. Run `python -m src.tracker --provenance` for the current split, and `--purge demo` to clear it.
+- **The shipped DB mixes one fake project with two real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, $0.2012, never billed). `civil-prep` and `cost-watchdog-self` are real (`source=live`, $0.0015 combined) — see [§8b](#8b-real-integration-tracking-civil-prep). At the time of writing that's 99.27% demo by dollar amount, because the fake project's one deliberately-planted long-context call costs more alone than 22 real Gemini Flash-Lite calls combined; the call *count* split (10 demo vs 22 live) tells the more representative story. Run `python -m src.tracker --provenance` for the current numbers, and `--purge demo` to drop the fake project entirely.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
 - **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate — which is why every projection carries a `confidence` field.
