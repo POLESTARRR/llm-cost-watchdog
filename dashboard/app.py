@@ -29,7 +29,7 @@ from src.guard import guard_status
 from src.pricing import PRICING_TABLE, calculate_cost, compare_models
 from src.waste import find_waste
 from src.providers import configured_providers
-from src.tracker import get_events_for_period, log_usage, parse_sources, source_totals
+from src.tracker import get_events_for_period, log_usage_many, parse_sources, source_totals
 from src.usage_schema import Source, UsageEvent
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -190,9 +190,9 @@ def import_events(
     if x_watchdog_import_key != IMPORT_KEY:
         raise HTTPException(status_code=401, detail="Missing or invalid X-Watchdog-Import-Key header.")
 
-    logged = 0
     skipped_unpriced = 0
     total_cost = 0.0
+    to_insert: list[UsageEvent] = []
     for e in payload.events:
         if e.model not in PRICING_TABLE:
             skipped_unpriced += 1
@@ -217,11 +217,14 @@ def import_events(
             source=e.source,
             **({"timestamp": e.timestamp} if e.timestamp else {}),
         )
-        log_usage(event)
-        logged += 1
+        to_insert.append(event)
         total_cost += cost
 
-    return {"logged": logged, "skipped_unpriced": skipped_unpriced, "total_cost_usd": round(total_cost, 6)}
+    # One connection, one commit for the whole batch -- see log_usage_many's
+    # docstring for why this matters against a remote (Turso) database.
+    log_usage_many(to_insert)
+
+    return {"logged": len(to_insert), "skipped_unpriced": skipped_unpriced, "total_cost_usd": round(total_cost, 6)}
 
 
 # Mounted last so the API routes above take precedence over the static catch-all.

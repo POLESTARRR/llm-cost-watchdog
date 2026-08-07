@@ -181,6 +181,48 @@ def log_usage(event: UsageEvent, db_path: str | None = None) -> None:
         )
 
 
+def log_usage_many(events: list[UsageEvent], db_path: str | None = None) -> None:
+    """Persist multiple UsageEvents in one connection and one commit.
+
+    log_usage() opens a fresh connection per call (via init_db() *and* its
+    own _connect()) -- against local SQLite that's negligible, but against
+    Turso each connection does a real network sync, so importing N events
+    one-by-one costs 2N remote round-trips. This does exactly one connect
+    and one commit for the whole batch, confirmed against the real Render
+    deployment: a 1225-row import went from a projected multi-hour runtime
+    (26s/row) to a single-digit-seconds batch.
+    """
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        for event in events:
+            conn.execute(
+                """
+                INSERT INTO usage_events
+                    (id, timestamp, model, provider, project_tag,
+                     input_tokens, output_tokens, cached_input_tokens, cache_write_tokens,
+                     cost_usd, latency_ms, prompt_preview, success, error, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.id,
+                    event.timestamp,
+                    event.model,
+                    event.provider,
+                    event.project_tag,
+                    event.input_tokens,
+                    event.output_tokens,
+                    event.cached_input_tokens,
+                    event.cache_write_tokens,
+                    event.cost_usd,
+                    event.latency_ms,
+                    event.prompt_preview,
+                    int(event.success),
+                    event.error,
+                    event.source,
+                ),
+            )
+
+
 def get_events(
     start_date: str | None = None,
     end_date: str | None = None,
