@@ -97,17 +97,26 @@ class TursoConnection:
         self._conn = libsql.connect(local_replica, sync_url=database_url, auth_token=auth_token)
         self._conn.sync()
         self.row_factory = None  # accepted for API parity with sqlite3.Connection; ignored
+        self._dirty = False  # set on any write; commit() only syncs (a real network
+        # round-trip) when this is true -- confirmed against the real deployment that
+        # a single read-heavy request (find_waste, which issues ~9 queries) was
+        # forcing ~18 syncs by treating every read like a write, timing out at 45s+.
 
     def execute(self, sql: str, params: tuple = ()):
+        if not sql.lstrip().upper().startswith(("SELECT", "PRAGMA")):
+            self._dirty = True
         raw = self._conn.execute(sql, params)
         return _Cursor(raw)
 
     def executescript(self, script: str) -> None:
+        self._dirty = True
         self._conn.executescript(script)
 
     def commit(self) -> None:
         self._conn.commit()
-        self._conn.sync()
+        if self._dirty:
+            self._conn.sync()
+            self._dirty = False
 
     def close(self) -> None:
         self._conn.close()
