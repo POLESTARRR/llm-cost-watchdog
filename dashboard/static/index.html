@@ -215,7 +215,6 @@
       <option value="live">Live calls only</option>
       <option value="demo">Demo data only</option>
     </select>
-    <span id="provider-status" class="sub"></span>
   </div>
 
   <div class="provenance" id="provenance"></div>
@@ -437,11 +436,6 @@ async function load() {
   ]);
 
   renderProvenance(prov, source);
-
-  const configured = Object.entries(providers.configured).filter(([, v]) => v).map(([k]) => k);
-  $("provider-status").textContent = configured.length
-    ? `Configured: ${configured.join(", ")}`
-    : "No provider credentials configured";
 
   $("total-cost").textContent = usd2(report.total_cost_usd);
   $("total-calls").textContent =
