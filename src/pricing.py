@@ -54,6 +54,9 @@ PRICING_TABLE: dict[str, dict[str, float]] = {
     "gemini-flash-latest": {"input": 0.0003, "cached_input": 0.000075, "output": 0.0025},
     "gemini-pro-latest": {"input": 0.00125, "cached_input": 0.0003125, "output": 0.010},
     "gemini-flash-lite-latest": {"input": 0.0001, "cached_input": 0.000025, "output": 0.0004},
+    # Verified against ai.google.dev/gemini-api/docs/pricing 2026-08-07:
+    # $0.25 / $0.025 / $1.50 per 1M tokens (input / cached input / output).
+    "gemini-3.1-flash-lite": {"input": 0.00025, "cached_input": 0.000025, "output": 0.0015},
 }
 
 DEFAULT_MODEL = "gemini-flash-lite-latest"
