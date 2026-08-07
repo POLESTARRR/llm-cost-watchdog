@@ -2,7 +2,7 @@
 Reports, anomaly detection, budget checks, and burn-rate projection over
 logged UsageEvents.
 
-Everything here reads from SQLite and returns plain data — no LLM calls, no
+Everything here reads from SQLite and returns plain data, no LLM calls, no
 provider SDKs. That separation is why the digest, the MCP server, and the
 dashboard can all share this layer without duplicating logic.
 """
@@ -24,7 +24,7 @@ def compute_report(period: str = "week", source: str | None = None) -> CostRepor
     """Aggregate events for a period into totals and breakdowns.
 
     Breaks down by model, project, provider, and provenance, and computes what
-    prompt caching actually saved — the counterfactual cost if every cached
+    prompt caching actually saved, the counterfactual cost if every cached
     token had been billed at the full input rate.
 
     `source` narrows to rows of a given provenance ("live", "live,manual",
@@ -92,7 +92,7 @@ def flag_anomalies(
     Comparison is per-model, so a legitimately expensive Opus call is never
     flagged merely for costing more than a Haiku call. The first event for a
     model has no prior history and is never flagged. Failed calls are excluded
-    from both the baseline and the flagging — a 429 with 0 cost and 200ms
+    from both the baseline and the flagging, a 429 with 0 cost and 200ms
     latency would otherwise drag the rolling average down and cause the next
     normal call to look anomalous.
     """
@@ -146,7 +146,7 @@ def check_budget_status(period: str = "weekly", source: str | None = BILLED_SOUR
     "near" = spend is at or over 80% of the limit but under 100%.
 
     Defaults to billed rows only. A budget exists to describe real money, so
-    seeded demo data must not consume it — otherwise loading sample data could
+    seeded demo data must not consume it, otherwise loading sample data could
     report you "over budget" on spend that never happened.
     """
     limit_usd = float(os.environ.get("WEEKLY_BUDGET_USD", "5.00"))
@@ -183,7 +183,7 @@ def project_burn_rate(period: str = "week", source: str | None = BILLED_SOURCES)
     spend rate over `period` to extrapolate a daily rate and a projected
     7-day total, then estimates the date the budget runs out.
 
-    Extrapolation is only as good as the window — a burst of activity in a
+    Extrapolation is only as good as the window, a burst of activity in a
     short window projects a misleadingly high rate, so `confidence` reports
     how much data the projection rests on.
     """
@@ -191,7 +191,7 @@ def project_burn_rate(period: str = "week", source: str | None = BILLED_SOURCES)
     limit_usd = float(os.environ.get("WEEKLY_BUDGET_USD", "5.00"))
 
     if not events:
-        # Same key set as the populated path — a caller reading
+        # Same key set as the populated path, a caller reading
         # `calls_observed` must not KeyError just because there was no traffic.
         return {
             "period": period,
@@ -206,12 +206,12 @@ def project_burn_rate(period: str = "week", source: str | None = BILLED_SOURCES)
             "exhaustion_date": None,
             "on_track": True,
             "confidence": "none",
-            "note": "No successful calls in this period — nothing to project from.",
+            "note": "No successful calls in this period. Nothing to project from.",
         }
 
     total = sum(e.cost_usd for e in events)
 
-    # Span the data actually covers, not the nominal period — 3 days of data
+    # Span the data actually covers, not the nominal period, 3 days of data
     # in a 7-day window should produce a 3-day rate, not a 7-day one.
     timestamps = sorted(e.timestamp for e in events)
     first = _parse_ts(timestamps[0])
@@ -278,7 +278,7 @@ def provider_breakdown(period: str = "week", source: str | None = None) -> list[
                 "calls": len(items),
                 "calls_by_source": dict(by_source),
                 # Zero here means this provider has never been exercised for
-                # real — its numbers are seeded, and its adapter is untested
+                # real. Its numbers are seeded, and its adapter is untested
                 # against a live endpoint.
                 "live_calls": by_source.get("live", 0),
                 "failed_calls": len(items) - len(ok),

@@ -83,7 +83,7 @@ def anomalies(
 
 @app.get("/budget")
 def budget(source: str | None = Query(None, pattern=SOURCE_RE)) -> dict:
-    # Unset means billed-only here, not "everything" — a budget describes real
+    # Unset means billed-only here, not "everything", a budget describes real
     # money, so check_budget_status() owns that default.
     if source is None:
         return check_budget_status("weekly")
@@ -142,7 +142,7 @@ def calls(
 
 class ImportEvent(BaseModel):
     """One usage row from a remote import client. Deliberately mirrors
-    UsageEvent's fields rather than reusing it directly — this is a
+    UsageEvent's fields rather than reusing it directly. This is a
     request-body contract at a trust boundary, not an internal type, and it
     omits `id` and `cost_usd`: the id is server-assigned, and cost is always
     recomputed server-side (see import_events) rather than trusted from the
@@ -178,7 +178,7 @@ def import_events(
     it on the next page load.
 
     Disabled entirely (403) unless WATCHDOG_IMPORT_KEY is set in this
-    deployment's environment -- there is no such thing as a default-open
+    deployment's environment. There is no such thing as a default-open
     write endpoint here. Cost is always recomputed from tokens via this
     project's own pricing table, never trusted from the request body.
     """
@@ -220,7 +220,7 @@ def import_events(
         to_insert.append(event)
         total_cost += cost
 
-    # One connection, one commit for the whole batch -- see log_usage_many's
+    # One connection, one commit for the whole batch, see log_usage_many's
     # docstring for why this matters against a remote (Turso) database.
     log_usage_many(to_insert)
 

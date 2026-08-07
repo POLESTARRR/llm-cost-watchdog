@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS usage_events (
 );
 """
 
-# Indexes are created AFTER migrations run — an index on a column that a
+# Indexes are created AFTER migrations run, an index on a column that a
 # pre-migration table doesn't have yet would fail the whole script.
 INDEX_SCHEMA = """
 CREATE INDEX IF NOT EXISTS idx_usage_events_timestamp ON usage_events(timestamp);
@@ -73,18 +73,18 @@ _MIGRATIONS = [
 VALID_SOURCES = ("live", "demo", "manual")
 
 # The rows representing money that actually left your account. Anything that
-# enforces or projects real spend filters to this — a seeded demo row must
+# enforces or projects real spend filters to this, a seeded demo row must
 # never trip a real budget or block a real call.
 BILLED_SOURCES = "live,manual"
 
 
-_turso_conn = None  # process-wide singleton -- see below
+_turso_conn = None  # process-wide singleton, see below
 
 
 @contextmanager
 def _connect(db_path: str | None = None):
     # A remote Turso database, when configured, always wins over any local
-    # db_path -- there's exactly one remote DB per deployment, so per-call
+    # db_path, there's exactly one remote DB per deployment, so per-call
     # path overrides (used by tests and CLI tools) don't apply to it. Local
     # dev and the test suite never set TURSO_DATABASE_URL, so this branch
     # is inert for them. See src/turso_backend.py for why a wrapper is
@@ -97,7 +97,7 @@ def _connect(db_path: str | None = None):
     # deployment: find_waste() alone issues ~9 queries and was timing out at
     # 45s+ from reconnect overhead alone before this was cached. Writes made
     # outside this process (e.g. a direct migration against the Turso HTTP
-    # API) won't be visible until this process restarts -- an accepted
+    # API) won't be visible until this process restarts, an accepted
     # tradeoff since normal writes all go through this same cached connection.
     turso_url = os.environ.get("TURSO_DATABASE_URL")
     if turso_url:
@@ -204,7 +204,7 @@ def log_usage_many(events: list[UsageEvent], db_path: str | None = None) -> None
     """Persist multiple UsageEvents in one connection and one commit.
 
     log_usage() opens a fresh connection per call (via init_db() *and* its
-    own _connect()) -- against local SQLite that's negligible, but against
+    own _connect()), against local SQLite that's negligible, but against
     Turso each connection does a real network sync, so importing N events
     one-by-one costs 2N remote round-trips. This does exactly one connect
     and one commit for the whole batch, confirmed against the real Render
@@ -255,7 +255,7 @@ def get_events(
     that bound is unlimited.
 
     `source` accepts one of VALID_SOURCES, a comma-separated set of them
-    ("live,manual" — every row you were actually billed for), or None/"all"
+    ("live,manual". Every row you were actually billed for), or None/"all"
     for everything.
     """
     init_db(db_path)

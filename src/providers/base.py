@@ -26,7 +26,7 @@ class LLMResponse:
       - written = newly stored in cache, billed at a premium on some models
     Providers without prompt caching report 0 for both.
 
-    `output_tokens` includes reasoning tokens where the provider emits them —
+    `output_tokens` includes reasoning tokens where the provider emits them
     every provider counts reasoning inside output, so callers must not add
     them separately.
     """

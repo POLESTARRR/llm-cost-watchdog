@@ -1,5 +1,5 @@
 """
-Spend guardrails — the part that stops money being spent, rather than
+Spend guardrails, the part that stops money being spent, rather than
 reporting on it afterwards.
 
 Observability tells you what a runaway agent loop cost you. A guardrail
@@ -9,9 +9,9 @@ this is the one piece that intervenes.
 
 Three independent protections, each of which can be off / warn / block:
 
-  1. Budget      — spend for the period vs. your configured limit
-  2. Circuit     — too many calls in a short window (a loop that won't stop)
-  3. Per-call    — a single call whose estimated cost is implausibly large
+  1. Budget, spend for the period vs. your configured limit
+  2. Circuit, too many calls in a short window (a loop that won't stop)
+  3. Per-call, a single call whose estimated cost is implausibly large
 
 Configuration (all optional, all via env):
 
@@ -22,7 +22,7 @@ Configuration (all optional, all via env):
     WATCHDOG_PROJECT_CAPS=job-search-agent:2.00,teaching-workshop:1.00
 
 Default mode is `warn`, deliberately. A tracking wrapper that silently
-starts refusing calls would be worse than the problem it solves — you opt
+starts refusing calls would be worse than the problem it solves. You opt
 into blocking.
 """
 
@@ -111,7 +111,7 @@ def check_guards(
     details: dict = {}
     reasons: list[str] = []
 
-    # Billed rows only. Seeded demo data must never block a real call — loading
+    # Billed rows only. Seeded demo data must never block a real call, loading
     # sample_usage.json would otherwise be enough to exhaust the budget and
     # refuse traffic on spend that never happened.
     events = get_events_for_period("week", source=BILLED_SOURCES)
@@ -139,7 +139,7 @@ def check_guards(
 
     # --- 3. runaway-loop circuit breaker ---------------------------------
     # The scenario this exists for: an agent loop with no exit condition,
-    # discovered the next morning. Rate is the only early signal — cost
+    # discovered the next morning. Rate is the only early signal, cost
     # lags far behind call volume on cheap models.
     max_per_min = int(os.environ.get("WATCHDOG_MAX_CALLS_PER_MIN", "60"))
     if max_per_min > 0:
@@ -149,7 +149,7 @@ def check_guards(
         details["max_calls_per_minute"] = max_per_min
         if recent >= max_per_min:
             triggered.append("rate_limit")
-            reasons.append(f"{recent} calls in the last minute (limit {max_per_min}) — possible runaway loop")
+            reasons.append(f"{recent} calls in the last minute (limit {max_per_min}), possible runaway loop")
 
     # --- 4. implausibly expensive single call ----------------------------
     max_call = float(os.environ.get("WATCHDOG_MAX_COST_PER_CALL", "1.00"))
@@ -208,7 +208,7 @@ def guard_status() -> dict:
     return {
         "mode": verdict.mode,
         "mode_meaning": {
-            MODE_OFF: "guards disabled — nothing is checked",
+            MODE_OFF: "guards disabled. Nothing is checked",
             MODE_WARN: "over-limit calls are logged but still sent",
             MODE_BLOCK: "over-limit calls raise BudgetExceededError and are not sent",
         }[verdict.mode],

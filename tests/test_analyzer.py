@@ -65,7 +65,7 @@ def test_flags_injected_latency_spike(temp_db):
 
 def test_does_not_flag_normal_variance(temp_db):
     for i in range(25):
-        wobble = 1 + (i % 5) * 0.15  # up to 1.6x — well under 3x
+        wobble = 1 + (i % 5) * 0.15  # up to 1.6x, well under 3x
         _log(temp_db, cost=0.001 * wobble, latency=1000 * wobble)
     assert flag_anomalies(3.0) == []
 
@@ -86,7 +86,7 @@ def test_threshold_multiplier_is_respected(temp_db):
 
 def test_comparison_is_per_model_not_global(temp_db):
     """An expensive model must not be flagged merely for costing more than a
-    cheap one — the baseline is per-model."""
+    cheap one, the baseline is per-model."""
     for _ in range(20):
         _log(temp_db, model="cheap-model", cost=0.0001, latency=500)
         _log(temp_db, model="pricey-model", cost=0.05, latency=3000)
@@ -297,7 +297,7 @@ def test_what_if_with_no_matching_traffic_is_handled(sample_db):
 
 def test_generate_digest_runs_without_crashing(sample_db, tmp_path, monkeypatch):
     """The digest must still produce output and save a report when the LLM
-    call fails — a scheduled run that loses everything to a 429 is broken."""
+    call fails, a scheduled run that loses everything to a 429 is broken."""
     from src import digest
 
     monkeypatch.setattr(digest, "REPORTS_DIR", tmp_path / "reports")

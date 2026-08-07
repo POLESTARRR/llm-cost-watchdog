@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 # Where a row came from. A cost tracker whose numbers can't be traced back to a
-# real API call is worse than no tracker — it reports confident fiction. Every
+# real API call is worse than no tracker. It reports confident fiction. Every
 # row carries its provenance so "total spend" can always be narrowed to money
 # that was actually charged.
 #   live   - a real HTTP request through call_llm(); the only rows you were billed for
@@ -39,7 +39,7 @@ class UsageEvent(BaseModel):
     error: str | None = None
     # Defaults to "live" because the wrapper is the overwhelmingly common
     # writer, and a row that lies about being real is the dangerous direction
-    # of that default — seeders and manual entry both set this explicitly.
+    # of that default, seeders and manual entry both set this explicitly.
     source: Source = "live"
 
     @classmethod

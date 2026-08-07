@@ -10,8 +10,8 @@ python-dotenv==1.2.2
 httpx==0.28.1  # also used by scripts/import_claude_code_usage.py --remote-url
 
 # Deliberately NOT listing `libsql` here (see src/turso_backend.py). Its
-# only prebuilt wheels are macOS and manylinux x86_64 -- no linux/arm64, no
-# macOS cp314 -- so it fails to install from source on an unrelated dev
+# only prebuilt wheels are macOS and manylinux x86_64, no linux/arm64, no
+# macOS cp314, so it fails to install from source on an unrelated dev
 # machine (confirmed: this exact repo's own venv, Python 3.14 on Apple
 # Silicon, has no wheel and no Rust toolchain to build one). It's installed
 # separately in Dockerfile, which targets linux/amd64 (Render's real

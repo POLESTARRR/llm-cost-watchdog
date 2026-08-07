@@ -3,8 +3,8 @@ The weekly agentic loop: pull a cost report + anomalies, ask an LLM to turn
 them into a short plain-language digest, save it, and return the text.
 
 This is "agentic" in a narrow, honest sense: it makes an autonomous judgment
-call every week — what's normal, what's worth flagging, what's worth doing
-about it — without a human framing the question each time. It is not a
+call every week, what's normal, what's worth flagging, what's worth doing
+about it, without a human framing the question each time. It is not a
 multi-step tool-using agent; it's a single well-documented function that
 reads structured data and writes a summary. That's the right amount of
 machinery for this problem.

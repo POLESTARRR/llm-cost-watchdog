@@ -1,18 +1,18 @@
 """
-Waste detection — spend that bought you nothing, and spend you could stop
+Waste detection, spend that bought you nothing, and spend you could stop
 buying tomorrow.
 
 A cost report tells you *where* money went. It doesn't tell you which of it
 was avoidable. These five checks do, and each one ends in a concrete action
 rather than an observation:
 
-  1. Retry waste      — failed attempts, and the latency you paid for them
-  2. Duplicate calls  — the same prompt sent repeatedly
-  3. Cache misses     — repeated long prefixes never cached
-  4. Over-powered      — a frontier model doing trivial-length work
-  5. Model switch      — real spend on a model with a cheaper same-vendor
+  1. Retry waste, failed attempts, and the latency you paid for them
+  2. Duplicate calls, the same prompt sent repeatedly
+  3. Cache misses, repeated long prefixes never cached
+  4. Over-powered, a frontier model doing trivial-length work
+  5. Model switch, real spend on a model with a cheaper same-vendor
                           sibling, re-priced on YOUR actual traffic (not a
-                          trivial-length heuristic like #4 — this catches
+                          trivial-length heuristic like #4. This catches
                           substantial, non-trivial work too)
 
 Everything here is computed from data already in SQLite. No API calls, no
@@ -31,7 +31,7 @@ from src.usage_schema import UsageEvent
 # avoid false positives on prompts that merely start alike.
 _MIN_PREVIEW_FOR_DUPLICATE = 40
 
-# Below this, a call is "trivial-length" — a frontier model is likely overkill.
+# Below this, a call is "trivial-length", a frontier model is likely overkill.
 _TRIVIAL_OUTPUT_TOKENS = 120
 _TRIVIAL_INPUT_TOKENS = 800
 
@@ -39,7 +39,7 @@ _TRIVIAL_INPUT_TOKENS = 800
 _FRONTIER_PREFIXES = ("claude-opus", "claude-fable", "gpt-5.6-sol", "gpt-5.5", "gemini-pro")
 
 # Cheapest sensible substitute per provider, for the "you could have used"
-# suggestion. Deliberately conservative — a real downgrade suggestion, not
+# suggestion. Deliberately conservative, a real downgrade suggestion, not
 # the absolute cheapest model on the market.
 _DOWNGRADE = {
     "anthropic": "claude-haiku-4-5",
@@ -48,7 +48,7 @@ _DOWNGRADE = {
 }
 
 # One step down within the same vendor's family, for the model-switch check.
-# Unlike _DOWNGRADE this isn't gated on trivial call length — it re-prices
+# Unlike _DOWNGRADE this isn't gated on trivial call length. It re-prices
 # real, possibly substantial traffic and only reports what the actual
 # difference would have been.
 _SIBLING_DOWNGRADE = {
@@ -104,7 +104,7 @@ def _retry_recommendation(failed: int, total: int, by_model: Counter) -> str:
     worst = by_model.most_common(1)[0][0] if by_model else "unknown"
     if rate > 0.25:
         return (
-            f"{rate:.0%} of calls failed — most on {worst}. That is high enough to be "
+            f"{rate:.0%} of calls failed. Most on {worst}. That is high enough to be "
             f"structural, not transient: check quota tier, or route this traffic to another provider."
         )
     if rate > 0.05:
@@ -112,7 +112,7 @@ def _retry_recommendation(failed: int, total: int, by_model: Counter) -> str:
             f"{rate:.0%} of calls failed, mostly on {worst}. Worth raising backoff "
             f"(LLM_MAX_RETRIES) or spreading load across providers."
         )
-    return f"{failed} failed call(s) on {worst} — within normal transient range."
+    return f"{failed} failed call(s) on {worst}, within normal transient range."
 
 
 def find_duplicate_calls(
@@ -167,7 +167,7 @@ def find_cache_opportunities(
     """Repeated large prompts that were never served from cache.
 
     Prompt caching is the biggest single lever on real LLM spend, and it is
-    opt-in on every provider — which means it is usually just left off. This
+    opt-in on every provider, which means it is usually just left off. This
     finds the traffic where turning it on would actually pay, and prices the
     saving using the model's real cached rate.
     """
@@ -220,7 +220,7 @@ def find_overpowered_calls(
     """Frontier models doing work a cheap model would have handled.
 
     Heuristic, and labeled as one: short input AND short output on an
-    expensive model. It cannot know the task was easy — only that the shape
+    expensive model. It cannot know the task was easy, only that the shape
     of the call looks trivial. Treat it as a prompt to review, not a verdict.
     """
     if events is None:
@@ -262,10 +262,10 @@ def find_overpowered_calls(
             "basis": (
                 f"{len(items)} call(s) averaged "
                 f"{sum(e.input_tokens for e in items)//len(items)} in / "
-                f"{sum(e.output_tokens for e in items)//len(items)} out — trivial-length work "
+                f"{sum(e.output_tokens for e in items)//len(items)} out, trivial-length work "
                 f"for a frontier model."
             ),
-            "confidence": "heuristic — review before switching; short output does not always mean easy task",
+            "confidence": "heuristic, review before switching; short output does not always mean easy task",
         })
 
     rows.sort(key=lambda r: r["estimated_saving_usd"], reverse=True)
@@ -276,12 +276,12 @@ def find_model_switch_savings(
     period: str = "week", source: str | None = None, events: list[UsageEvent] | None = None
 ) -> list[dict]:
     """What your real traffic on each model would have cost on its cheaper
-    same-vendor sibling — re-priced on the actual calls you made, not a
+    same-vendor sibling, re-priced on the actual calls you made, not a
     trivial-length heuristic.
 
     Complements find_overpowered_calls(): that check only catches short,
     simple calls on a frontier model. This one catches real, substantial
-    traffic too — a long build session that ran on Opus when Sonnet would
+    traffic too, a long build session that ran on Opus when Sonnet would
     have done the same job for 40% less is exactly the case this exists for.
     """
     if events is None:
@@ -319,7 +319,7 @@ def find_waste(period: str = "week", source: str | None = None) -> dict:
     """Run every waste check and total the recoverable spend.
 
     Fetches the period's events exactly once and hands the same list to
-    every sub-check -- each check independently querying get_events_for_period
+    every sub-check. Each check independently querying get_events_for_period
     meant one /waste request issued ~9 separate DB round-trips over identical
     data. Against local SQLite that was free; against a remote Turso database
     it was the difference between the dashboard's /waste panel responding in
@@ -343,7 +343,7 @@ def find_waste(period: str = "week", source: str | None = None) -> dict:
 
     total = sum(e.cost_usd for e in events)
 
-    # The categories OVERLAP — a duplicated call is also a cache opportunity,
+    # The categories OVERLAP, a duplicated call is also a cache opportunity,
     # and both may also be over-powered. Summing them naively can exceed total
     # spend (observed: 114%), which is obviously wrong and would make the whole
     # number untrustworthy. So this is reported as an upper bound, capped at

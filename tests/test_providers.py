@@ -117,7 +117,7 @@ def test_anthropic_refusal_yields_empty_text_not_a_crash(monkeypatch):
 
 
 def test_anthropic_omits_temperature_on_models_that_reject_it():
-    """Sampling params were removed on Opus 4.7+/5, Sonnet 5, Fable 5 — sending
+    """Sampling params were removed on Opus 4.7+/5, Sonnet 5, Fable 5, sending
     them returns a 400."""
     assert _accepts_temperature("claude-opus-5") is False
     assert _accepts_temperature("claude-sonnet-5") is False
@@ -144,7 +144,7 @@ def test_anthropic_does_not_send_temperature_for_opus5(monkeypatch):
 
 
 def test_openai_input_tokens_already_include_cached(monkeypatch):
-    """Unlike Anthropic, OpenAI's input_tokens is the full prompt — summing
+    """Unlike Anthropic, OpenAI's input_tokens is the full prompt, summing
     the cached subset back in would double-count it."""
     fake = _Obj(
         output_text="hi there",

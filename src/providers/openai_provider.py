@@ -1,12 +1,12 @@
 """OpenAI adapter (official `openai` SDK, Responses API).
 
 Reads usage off the response:
-  usage.input_tokens                          — total prompt tokens
-  usage.input_tokens_details.cached_tokens    — subset served from cache
+  usage.input_tokens, total prompt tokens
+  usage.input_tokens_details.cached_tokens, subset served from cache
   usage.output_tokens
 
 Unlike Anthropic, OpenAI's `input_tokens` already includes the cached
-portion, so no summing is needed — we just split out the cached subset for
+portion, so no summing is needed. We just split out the cached subset for
 per-rate billing.
 """
 
@@ -53,7 +53,7 @@ class OpenAIProvider:
             text=response.output_text,
             # Already includes the cached/written portions.
             input_tokens=usage.input_tokens,
-            # Already includes reasoning tokens — do not add them again.
+            # Already includes reasoning tokens, do not add them again.
             output_tokens=usage.output_tokens,
             cached_input_tokens=cached,
             cache_write_tokens=written,

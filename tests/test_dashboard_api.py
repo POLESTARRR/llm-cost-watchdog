@@ -127,7 +127,7 @@ def test_calls_returns_recent_first_and_respects_limit(client):
 
 
 def test_calls_never_exposes_full_prompts(client):
-    """prompt_preview is capped at 80 chars — a privacy guarantee, so assert it."""
+    """prompt_preview is capped at 80 chars, a privacy guarantee, so assert it."""
     for call in client.get("/calls?period=all_time&limit=44").json():
         assert len(call["prompt_preview"]) <= 80
 
@@ -240,7 +240,7 @@ def test_index_has_a_source_filter_and_provenance_banner(client):
 @pytest.fixture
 def import_key(monkeypatch):
     """Enable the /import endpoint for a test by patching the module-level
-    IMPORT_KEY directly -- it's read from the environment once at import
+    IMPORT_KEY directly, it's read from the environment once at import
     time, so a plain monkeypatch.setenv after that point has no effect.
     """
     import dashboard.app as dashboard_app
@@ -261,7 +261,7 @@ def _import_event(**overrides):
 
 
 def test_import_disabled_without_key(client, monkeypatch):
-    # Explicitly force the "not configured" state -- relying on the ambient
+    # Explicitly force the "not configured" state, relying on the ambient
     # environment not having WATCHDOG_IMPORT_KEY set is fragile (exactly
     # this test broke the moment a real deployment key was added to .env
     # for manual testing).
@@ -300,7 +300,7 @@ def test_import_logs_events_with_correct_key(client, import_key):
 
 
 def test_import_recomputes_cost_server_side(client, import_key):
-    """The request body has no cost field at all -- cost always comes from
+    """The request body has no cost field at all, cost always comes from
     this project's own pricing table, never the caller."""
     from src.pricing import calculate_cost
 

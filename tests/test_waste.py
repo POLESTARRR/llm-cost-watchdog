@@ -1,4 +1,4 @@
-"""Waste detection — spend that bought nothing, and spend you could stop."""
+"""Waste detection, spend that bought nothing, and spend you could stop."""
 
 import pytest
 
@@ -77,7 +77,7 @@ def test_identical_prompts_are_flagged(temp_db):
     rows = find_duplicate_calls("all_time")
     assert len(rows) == 1
     assert rows[0]["times_sent"] == 4
-    # Only the repeats are avoidable — the first send was necessary.
+    # Only the repeats are avoidable, the first send was necessary.
     assert rows[0]["avoidable_cost_usd"] == pytest.approx(rows[0]["total_cost_usd"] * 0.75)
 
 

@@ -191,7 +191,7 @@ def test_falls_over_to_another_provider_when_rate_limited(
     temp_db, monkeypatch, fallback_on
 ):
     """A 429 on one provider should not fail the call when another provider
-    has credentials — that is the whole point of tracking three of them."""
+    has credentials. That is the whole point of tracking three of them."""
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     primary = _FakeProvider(fail_times=99, fail_with=RateLimitError("429"))
     backup = _FakeProvider(response=LLMResponse(text="from backup", input_tokens=10, output_tokens=5))
@@ -224,7 +224,7 @@ def test_fallback_records_both_the_failure_and_the_success(
 
 
 def test_no_fallback_on_non_rate_limit_errors(temp_db, monkeypatch, fallback_on):
-    """A 400 fails the same way everywhere — retrying elsewhere just burns
+    """A 400 fails the same way everywhere, retrying elsewhere just burns
     another call."""
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     primary = _FakeProvider(fail_times=99, fail_with=ValueError("bad request"))

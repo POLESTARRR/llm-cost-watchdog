@@ -2,7 +2,7 @@
 Provenance: every row records whether it represents real money.
 
 These tests exist because the dashboard once reported $0.4768 of "spend" when
-$0.4702 of it was seeded sample data that was never billed — a cost tracker
+$0.4702 of it was seeded sample data that was never billed, a cost tracker
 confidently reporting fiction. The rules encoded here:
 
   * a row's source is always one of live / demo / manual
@@ -103,7 +103,7 @@ def test_batch_load_source_can_be_overridden(temp_db, tmp_path):
     ("", None),
     ("live", ("live",)),
     ("LIVE", ("live",)),
-    (" live , manual ", ("live", "manual")),
+    (" live, manual ", ("live", "manual")),
     ("live,manual,demo", ("live", "manual", "demo")),
 ])
 def test_parse_sources(value, expected):

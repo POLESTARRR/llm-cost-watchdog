@@ -4,18 +4,18 @@ Multi-provider pricing table and cost calculator.
 Rates are USD **per 1,000 tokens**, derived from published per-million
 pricing. Three rates per model, because a prompt is not billed uniformly:
 
-  input          — uncached prompt tokens, full rate
-  cached_input   — prompt tokens served from a provider-side cache
-  output         — generated tokens
+  input, uncached prompt tokens, full rate
+  cached_input, prompt tokens served from a provider-side cache
+  output, generated tokens
 
 The cached rate is the reason this file has three columns instead of two.
-Prompt caching is the single biggest lever on real LLM spend — Anthropic
-cache reads bill at ~0.1x input, OpenAI at ~0.1x — and a tracker that
+Prompt caching is the single biggest lever on real LLM spend, Anthropic
+cache reads bill at ~0.1x input, OpenAI at ~0.1x, and a tracker that
 prices every input token at the full rate will overstate a cache-heavy
 workload's cost several times over. Almost no cost dashboard models this.
 
 Adding a model is one entry. Adding a *provider* is one entry plus an
-adapter in src/providers/ — see providers/base.py.
+adapter in src/providers/, see providers/base.py.
 
 Prices verified against provider pricing pages as of 2026-08. Rerun
 `python -m src.pricing --check` to print the table for review.
@@ -36,7 +36,7 @@ PRICING_TABLE: dict[str, dict[str, float]] = {
 
     # --- OpenAI ----------------------------------------------------------
     # GPT-5.6 family (current gen). `gpt-5.6` aliases to sol.
-    # These carry two extra billing rules — see LONG_CONTEXT_MODELS and
+    # These carry two extra billing rules, see LONG_CONTEXT_MODELS and
     # CACHE_WRITE_MULTIPLIER below.
     "gpt-5.6-sol": {"input": 0.005, "cached_input": 0.0005, "output": 0.030},
     "gpt-5.6-terra": {"input": 0.002, "cached_input": 0.0002, "output": 0.012},
@@ -54,12 +54,15 @@ PRICING_TABLE: dict[str, dict[str, float]] = {
     "gemini-flash-latest": {"input": 0.0003, "cached_input": 0.000075, "output": 0.0025},
     "gemini-pro-latest": {"input": 0.00125, "cached_input": 0.0003125, "output": 0.010},
     "gemini-flash-lite-latest": {"input": 0.0001, "cached_input": 0.000025, "output": 0.0004},
+    # Verified against ai.google.dev/gemini-api/docs/pricing 2026-08-07:
+    # $0.25 / $0.025 / $1.50 per 1M tokens (input / cached input / output).
+    "gemini-3.1-flash-lite": {"input": 0.00025, "cached_input": 0.000025, "output": 0.0015},
 }
 
 DEFAULT_MODEL = "gemini-flash-lite-latest"
 
 # Used when a model isn't in the table, so a tracking call never crashes on an
-# unknown model — we'd rather log an approximate cost than lose the event.
+# unknown model, we'd rather log an approximate cost than lose the event.
 _FALLBACK_RATES = {"input": 0.001, "cached_input": 0.0001, "output": 0.005}
 
 # --- Provider-specific billing rules ------------------------------------
@@ -111,7 +114,7 @@ def calculate_cost(
     so passing a token in both `input_tokens` and a subset argument is correct
     and expected.
 
-    `output_tokens` should already include reasoning tokens — every provider
+    `output_tokens` should already include reasoning tokens. Every provider
     reports them inside the output count, so adding them separately
     double-counts.
     """

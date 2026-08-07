@@ -1,6 +1,6 @@
 """Tracker: persistence, schema migration, and batch loading.
 
-The migration tests matter most — a cost watchdog that drops your spend
+The migration tests matter most, a cost watchdog that drops your spend
 history on upgrade has destroyed the only thing it exists to keep.
 """
 
@@ -80,7 +80,7 @@ def test_migrated_rows_get_safe_defaults(tmp_path):
 
 
 def test_migration_is_idempotent(tmp_path):
-    """init_db runs on every call — a second run must not error or duplicate."""
+    """init_db runs on every call, a second run must not error or duplicate."""
     db = str(tmp_path / "v1.db")
     _make_v1_db(db, rows=2)
 

@@ -12,7 +12,7 @@ from src.providers.base import LLMResponse, Provider, ProviderError
 from src.providers.gemini import GeminiProvider
 from src.providers.openai_provider import OpenAIProvider
 
-# Load .env here too, not just in utils — provider credential checks must give
+# Load .env here too, not just in utils, provider credential checks must give
 # the same answer regardless of which module the caller imported first.
 load_dotenv()
 

@@ -1,6 +1,6 @@
 """
 Shared utilities: env loading, logging, JSON helpers, and the call_llm()
-wrapper — the core product of this project.
+wrapper, the core product of this project.
 
 Every LLM call anywhere in this codebase (including this project's own
 digest-writing calls) routes through call_llm(), so cost, tokens, latency,
@@ -33,7 +33,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("llm-cost-watchdog")
 
-# Rate limits are the single most common transient LLM failure — this project
+# Rate limits are the single most common transient LLM failure. This project
 # hit them repeatedly during its own development. Retrying with jittered
 # exponential backoff turns a hard failure into a slow success.
 MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "3"))
@@ -41,7 +41,7 @@ BASE_BACKOFF_SECONDS = 1.0
 MAX_BACKOFF_SECONDS = 30.0
 
 # When the requested provider is rate-limited and you have credentials for
-# another one, failing the call outright is a choice — and the wrong one.
+# another one, failing the call outright is a choice, and the wrong one.
 # These are the cheap, broadly-available substitutes to fall back to, in
 # order. Set WATCHDOG_FALLBACK=off to disable.
 FALLBACK_MODELS = [
@@ -101,20 +101,20 @@ def call_llm(
 ) -> str:
     """Call any supported LLM, track the call, and return the response text.
 
-    The provider is inferred from the model ID — `claude-*` goes to Anthropic,
-    `gpt-*`/`o*` to OpenAI, `gemini-*` to Google — so callers never name a
+    The provider is inferred from the model ID, `claude-*` goes to Anthropic,
+    `gpt-*`/`o*` to OpenAI, `gemini-*` to Google, so callers never name a
     provider.
 
     Every call is logged as a UsageEvent before this function returns or
     raises, including failures. Retries on rate limits are logged as separate
     failed events, so a call that succeeded on its third attempt shows all
-    three: the two 429s and the success. That is deliberate — retry volume is
+    three: the two 429s and the success. That is deliberate, retry volume is
     itself a cost signal.
     """
     retries = MAX_RETRIES if max_retries is None else max_retries
 
     # Pre-flight guardrails. In `block` mode this raises BudgetExceededError
-    # before any request goes out — the one place this project stops spend
+    # before any request goes out, the one place this project stops spend
     # rather than reporting it. `skip_guards` lets the digest still report on
     # a session that has already tripped a limit.
     if not skip_guards:

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LLM Cost Watchdog</title>
 <style>
-  /* Defined on :root, not on .viz-root — `body` sits above .viz-root in the
+  /* Defined on :root, not on .viz-root, `body` sits above .viz-root in the
      tree, and custom properties only inherit downward. Scoping them to
      .viz-root left `body { background: var(--surface-0) }` unresolved, which
      rendered a white page under dark-mode white text. */
@@ -89,7 +89,7 @@
   }
 
   /* --- Provenance banner: says out loud when the headline number is not
-         real money. Warning-tinted rather than critical — seeded data is a
+         real money. Warning-tinted rather than critical, seeded data is a
          normal state for a demo, it just must never pass as billed spend. --- */
   .provenance {
     display: none;
@@ -222,28 +222,28 @@
   <div class="kpis">
     <div class="kpi">
       <div class="label">Total spend</div>
-      <div class="value" id="total-cost">—</div>
+      <div class="value" id="total-cost">-</div>
       <div class="note" id="total-calls"></div>
     </div>
     <div class="kpi">
       <div class="label">Budget</div>
-      <div class="value" id="budget-status">—</div>
+      <div class="value" id="budget-status">-</div>
       <div class="note" id="budget-note"></div>
       <div class="meter"><div id="budget-bar" style="width:0%"></div></div>
     </div>
     <div class="kpi">
       <div class="label">Projected weekly</div>
-      <div class="value" id="burn-projected">—</div>
+      <div class="value" id="burn-projected">-</div>
       <div class="note" id="burn-note"></div>
     </div>
     <div class="kpi">
       <div class="label">Recoverable</div>
-      <div class="value" id="waste-total">—</div>
+      <div class="value" id="waste-total">-</div>
       <div class="note" id="waste-note"></div>
     </div>
     <div class="kpi">
       <div class="label">Saved by caching</div>
-      <div class="value" id="cache-saved">—</div>
+      <div class="value" id="cache-saved">-</div>
       <div class="note" id="cache-note"></div>
     </div>
   </div>
@@ -305,7 +305,7 @@ const usd = (n) => "$" + Number(n).toFixed(6);
 const usd2 = (n) => "$" + Number(n).toFixed(4);
 const esc = (s) => String(s ?? "").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
 
-// Color follows the entity, never its rank — a provider keeps its hue even
+// Color follows the entity, never its rank, a provider keeps its hue even
 // when a filter changes which providers are on screen.
 const PROVIDER_COLOR = {
   anthropic: "var(--series-anthropic)",
@@ -412,9 +412,9 @@ function renderProvenance(p, sourceFilter) {
 
   // The unsolicited "X% is demo data" banner on the all-rows view was
   // removed by request. The underlying honesty mechanism is untouched and
-  // gives the same answer on demand — every row still carries a visible
+  // gives the same answer on demand. Every row still carries a visible
   // source badge, the Data filter still filters, and GET /provenance still
-  // returns the real split — it's just no longer pushed at you unasked on
+  // returns the real split, it's just no longer pushed at you unasked on
   // every page load.
   el.className = "provenance";
   el.innerHTML = "";
@@ -475,7 +475,7 @@ async function load() {
   renderRows("by-model", report.breakdown_by_model, (m) => providerOfModel[m] || "unknown");
   renderRows("by-project", report.breakdown_by_project, null);
 
-  // Dashboard shows the 2 most severe rather than the full list — full
+  // Dashboard shows the 2 most severe rather than the full list, full
   // fidelity is still available via the flag_anomalies MCP tool / API.
   const _sevRank = { high: 0, medium: 1, low: 2 };
   const topAnomalies = [...anomalies]
@@ -494,7 +494,7 @@ async function load() {
           <td><span class="dot" style="background:${colorFor(c.provider)}"></span>${esc(c.model)}</td>
           <td>${esc(c.project_tag)}</td>
           <td class="num">${c.input_tokens}/${c.output_tokens}</td>
-          <td class="num">${c.cached_input_tokens || "—"}</td>
+          <td class="num">${c.cached_input_tokens || "-"}</td>
           <td class="num">${usd(c.cost_usd)}</td>
           <td class="preview">${c.success ? "" : '<span class="failed">failed</span> '}${esc(c.prompt_preview)}</td>
         </tr>`).join("")

@@ -28,7 +28,7 @@ server = MCPServer(
         "budget and burn rate, surface anomalous calls, compare model pricing, "
         "and log calls made outside the tracked wrapper. Every row carries a "
         "provenance ('live' = a real billed API call, 'demo' = seeded sample "
-        "data, 'manual' = hand-entered) — use get_data_provenance before "
+        "data, 'manual' = hand-entered), use get_data_provenance before "
         "quoting a total as real money."
     ),
 )
@@ -113,7 +113,7 @@ def flag_anomalies(threshold_multiplier: float = 3.0) -> list[dict]:
 @server.tool(
     description="Break spend down by provider (anthropic / openai / google): cost, call volume, "
                 "tokens, prompt-cache hit rate, average latency, and which models were used. "
-                "Each row reports live_calls — if that is 0 the provider's numbers are seeded "
+                "Each row reports live_calls, if that is 0 the provider's numbers are seeded "
                 "demo data and its adapter has never run against a live endpoint."
 )
 def get_provider_breakdown(period: str = "week", source: str | None = None) -> list[dict]:
@@ -126,7 +126,7 @@ def get_provider_breakdown(period: str = "week", source: str | None = None) -> l
 
 @server.tool(
     description="Estimate and compare what a call of a given size would cost across models, "
-                "cheapest first. Makes no API calls — pure pricing arithmetic. Optionally pass "
+                "cheapest first. Makes no API calls, pure pricing arithmetic. Optionally pass "
                 "a list of model IDs to restrict the comparison."
 )
 def compare_model_costs(
@@ -190,7 +190,7 @@ def check_guard_status() -> dict:
 
 
 @server.tool(
-    description="Log an LLM call made outside the tracked call_llm() wrapper — e.g. one made "
+    description="Log an LLM call made outside the tracked call_llm() wrapper, e.g. one made "
                 "through a web UI or another tool. Provider is inferred from the model ID. "
                 "Recorded with source='manual': real spend, but reported rather than measured."
 )

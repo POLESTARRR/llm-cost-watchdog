@@ -1,6 +1,6 @@
 # LLM Cost & Observability Watchdog
 
-A personal cost, latency, and prompt-cache observability layer for LLM API calls across **Anthropic, OpenAI, and Google** — exposed to Claude Desktop as an **MCP server**.
+A personal cost, latency, and prompt-cache observability layer for LLM API calls across **Anthropic, OpenAI, and Google**, exposed to Claude Desktop as an **MCP server**.
 
 Wrap every LLM call you make in one tracked function, store it, watch it for anomalies and budget overruns, and get an autonomous weekly digest of what you spent and what looked wrong.
 
@@ -10,15 +10,15 @@ There is no chat UI. You talk to it through Claude Desktop ("what did I spend th
 
 ## 1. The problem
 
-Every LLM API call has a real cost and a real latency, and almost nobody tracks either until the bill arrives. Portfolio projects show what an agent *can do* — they rarely show what it *costs to run*.
+Every LLM API call has a real cost and a real latency, and almost nobody tracks either until the bill arrives. Portfolio projects show what an agent *can do*. They rarely show what it *costs to run*.
 
 The ones that do track cost usually track it **for one vendor**, and price it **wrong**, because real LLM billing is not `tokens × rate`:
 
-- **A prompt is not billed uniformly.** Cache reads bill at ~10% of the input rate; cache *writes* bill at a **premium** on some models. A tracker that prices every input token at the full rate can overstate a cache-heavy workload several times over — or miss that its first call is the expensive one.
-- **Anthropic's `usage.input_tokens` is the uncached remainder**, not the whole prompt. Reading it directly silently under-counts every cached call.
-- **OpenAI's GPT-5.6 family surcharges long context.** Past 272K input tokens the *entire* request bills at 2× input / 1.5× output — not just the excess.
+- **A prompt is not billed uniformly.** Cache reads bill at ~10% of the input rate; cache *writes* bill at a **premium** on some models. A tracker that prices every input token at the full rate can overstate a cache-heavy workload several times over, or miss that its first call is the expensive one.
+- **Anthropic's `usage.input_tokens` is the uncached remainder**: not the whole prompt. Reading it directly silently under-counts every cached call.
+- **OpenAI's GPT-5.6 family surcharges long context.** Past 272K input tokens the *entire* request bills at 2× input / 1.5× output, not just the excess.
 
-This project models all of that. One wrapper function, `call_llm()`, records cost, tokens, latency, and cache usage for every call — successful or failed, on any provider — into SQLite. Everything else reads from that one table.
+This project models all of that. One wrapper function, `call_llm()`, records cost, tokens, latency, and cache usage for every call, successful or failed, on any provider, into SQLite. Everything else reads from that one table.
 
 ---
 
@@ -56,7 +56,7 @@ This project models all of that. One wrapper function, `call_llm()`, records cos
 
 Two design decisions carry the project:
 
-**The wrapper is the product.** `call_llm()` logs before it returns, so there is no code path where a call happens and isn't tracked — including calls that fail, which is exactly when you most want the record.
+**The wrapper is the product.** `call_llm()` logs before it returns, so there is no code path where a call happens and isn't tracked, including calls that fail, which is exactly when you most want the record.
 
 **The provider adapter is the seam.** Each vendor reports usage in a different shape; the adapters normalize to one `LLMResponse`. Tracker, analyzer, digest, dashboard, and MCP never learn which vendor a call came from. Adding a provider is one adapter + one pricing entry.
 
@@ -78,7 +78,7 @@ is_anomaly = (event.cost_usd  > threshold_multiplier * rolling_avg_cost) \
 - Default `threshold_multiplier` is **3.0**.
 - Comparison is **per-model**, so a legitimately expensive Opus call is never flagged just for costing more than a Haiku call.
 - **Failed calls are excluded** from both the baseline and the flagging. A 429 logs `cost=0` and low latency; leaving those in drags the rolling average down and makes the *next normal call* look anomalous.
-- The **first call for a model is never flagged** — there is no baseline yet.
+- The **first call for a model is never flagged**. There is no baseline yet.
 - Severity is `high` when cost *and* latency both trip, otherwise `medium`.
 
 Implementation: [`src/analyzer.py`](src/analyzer.py) → `flag_anomalies()`.
@@ -98,7 +98,7 @@ pip install -r requirements.txt
 cp .env.example .env                # add whichever provider keys you use
 ```
 
-You only need keys for providers you actually call — a missing key disables that provider, it doesn't break the tracker.
+You only need keys for providers you actually call. A missing key disables that provider; it doesn't break the tracker.
 
 Load one illustrative fake project so there's something to look at:
 
@@ -106,13 +106,13 @@ Load one illustrative fake project so there's something to look at:
 python -m src.tracker --batch-load demo_job_search_agent.json
 ```
 
-(`sample_usage.json` is a *separate* file — it's the pytest fixture with
+(`sample_usage.json` is a *separate* file, it's the pytest fixture with
 planted anomalies, not demo content; don't load it into a DB you're using
 day to day.)
 
 These rows land tagged `source=demo`. They are never counted against your
 budget, they can't trip a guardrail, and the dashboard states on its face how
-much of the displayed total they account for — see [§8a Provenance](#8a-provenance--is-this-number-real).
+much of the displayed total they account for, see [§8a Provenance](#8a-provenance--is-this-number-real).
 Once you have real traffic of your own, `python -m src.tracker --purge demo`
 removes them and leaves billed history untouched.
 
@@ -173,7 +173,7 @@ The whole point of the wrapper is that it's portable:
 ```python
 from src.utils import call_llm
 
-# Provider is inferred from the model ID — no provider argument anywhere.
+# Provider is inferred from the model ID; no provider argument anywhere.
 summary = call_llm(prompt, model="claude-opus-5",  project_tag="job-search-agent")
 draft   = call_llm(prompt, model="gpt-5.6-luna",   project_tag="teaching-workshop")
 quick   = call_llm(prompt, model="gemini-flash-latest", project_tag="job-search-agent")
@@ -183,7 +183,7 @@ Tag each project distinctly and the cost breakdown tells you which of your proje
 
 ---
 
-## 6. Guardrails — the part that stops spend
+## 6. Guardrails: the part that stops spend
 
 Everything else in this project is read-only history. Guardrails are the one
 piece that intervenes, because knowing what a runaway agent loop cost you is
@@ -203,18 +203,18 @@ WATCHDOG_GUARD_MODE=warn    # off | warn | block
 ```
 
 **Default is `warn`, deliberately.** A tracking wrapper that silently starts
-refusing calls is worse than the problem it solves — you opt into `block`.
+refusing calls is worse than the problem it solves. You opt into `block`.
 In `block` mode, `call_llm()` raises `BudgetExceededError` *before* the
 request goes out.
 
 The circuit breaker exists for one specific scenario: an agent loop with no
 exit condition, discovered the next morning. **Call rate is the early signal**
-— on cheap models, cost lags far behind volume, so a budget check alone would
+on cheap models, cost lags far behind volume, so a budget check alone would
 not catch it until thousands of calls in.
 
 ### Provider fallback
 
-With credentials for more than one provider, a 429 shouldn't fail the call —
+With credentials for more than one provider, a 429 shouldn't fail the call
 it should fail *over*:
 
 ```bash
@@ -224,7 +224,7 @@ WATCHDOG_FALLBACK=on        # default
 When the requested provider is rate-limited, `call_llm()` retries it with
 backoff, then routes to a cheap model on a *different* configured provider.
 Both the failure and the eventual success are logged, so the fallback shows up
-in your cost history rather than hiding. Only rate limits trigger it — a 400
+in your cost history rather than hiding. Only rate limits trigger it; a 400
 fails identically everywhere, so retrying elsewhere just burns another call.
 
 ---
@@ -232,14 +232,14 @@ fails identically everywhere, so retrying elsewhere just burns another call.
 ## 7. Finding waste
 
 `find_waste` answers the question a cost report can't: **which of this spend
-was avoidable?** Five checks, all computed from data already in SQLite — no
+was avoidable?** Five checks, all computed from data already in SQLite, no
 API calls, free to run:
 
 | Check | Finds |
 |---|---|
-| **Model switch** | Real spend on a model with a cheaper same-vendor sibling, re-priced on YOUR actual traffic via `what_if_switched` — not gated by call length, so it catches substantial work too |
+| **Model switch** | Real spend on a model with a cheaper same-vendor sibling, re-priced on YOUR actual traffic via `what_if_switched`, not gated by call length, so it catches substantial work too |
 | **Retry waste** | Failed calls, the time they burned, and whether the failure rate is transient or structural |
-| **Duplicate calls** | The same prompt sent repeatedly — a missing cache or a loop re-asking |
+| **Duplicate calls** | The same prompt sent repeatedly: a missing cache or a loop re-asking |
 | **Cache opportunities** | Repeated large prompts never served from cache, priced at the model's real cached rate |
 | **Over-powered calls** | A frontier model doing trivial-length work, with a costed alternative |
 
@@ -247,10 +247,10 @@ Against this repo's own real, imported Claude Code build-cost data (§8d) it
 reports **~60% of spend as recoverable**, with the top action sourced from a
 real re-pricing of real traffic: *"581 real claude-sonnet-5 call(s) cost
 $54.83; the same traffic on claude-haiku-4-5 would have cost $18.28 (67%
-less)."* — not a caching tip this time, a genuine model-tier finding.
+less)."*, not a caching tip this time but a genuine model-tier finding.
 
-**The total is an upper bound, not a sum.** The categories overlap — a
-duplicated call is also a cache opportunity — so naively adding them can
+**The total is an upper bound, not a sum.** The categories overlap, a
+duplicated call is also a cache opportunity, so naively adding them can
 exceed 100% of spend (this actually happened: 114%). It is capped at actual
 spend and reported with per-category detail alongside.
 
@@ -268,12 +268,12 @@ spend and reported with per-category detail alongside.
 | `get_provider_breakdown` | `period`, `source?` | Per-provider cost, calls, tokens, cache hit rate, avg latency, models used, and `live_calls` |
 | `compare_model_costs` | `input_tokens`, `output_tokens`, `models?` | What one call would cost on each model, cheapest first. No API calls made |
 | `what_if_switched` | `from_model`, `to_model`, `period` | Re-prices your real traffic on another model |
-| `find_waste` | `period`, `source?` | Retry waste, duplicate prompts, missed caching, over-powered models — each with a concrete action |
+| `find_waste` | `period`, `source?` | Retry waste, duplicate prompts, missed caching, over-powered models. Each with a concrete action |
 | `check_guard_status` | none | Guard mode, budget headroom, call-rate vs. the circuit breaker, per-project caps |
 | `list_providers` | none | Which providers have credentials; which models are priced |
 | `log_manual_entry` | `model`, `cost_usd`, `tokens`, `project_tag`, `note` | Confirmation; the row is recorded with `source=manual` |
 
-`source` accepts `live`, `demo`, `manual`, any comma-separated combination (`live,manual`), or `all`. Omitting it includes everything — but the report still returns `breakdown_by_source`, so a total inflated by seeded data can never present itself as billed spend.
+`source` accepts `live`, `demo`, `manual`, any comma-separated combination (`live,manual`), or `all`. Omitting it includes everything, but the report still returns `breakdown_by_source`, so a total inflated by seeded data can never present itself as billed spend.
 
 Example exchanges in Claude Desktop:
 
@@ -306,14 +306,14 @@ Example exchanges in Claude Desktop:
 
 ---
 
-## 8a. Provenance — is this number real?
+## 8a. Provenance, is this number real?
 
 A cost tracker whose figures can't be traced back to a billed API call is worse
 than no tracker: it reports confident fiction. This repo ships with one
-illustrative fake project (`demo_job_search_agent.json`, a job-search agent —
+illustrative fake project (`demo_job_search_agent.json`, a job-search agent
 no such project exists, it's shaped like one to be a believable demo) so the
-dashboard isn't empty on first run. Everything else in the DB — `civil-prep`
-and `cost-watchdog-self` below — is real traffic, not invented.
+dashboard isn't empty on first run. Everything else in the DB, `civil-prep`
+and `cost-watchdog-self` below, is real traffic, not invented.
 
 Rather than hide that, every row carries a `source`:
 
@@ -335,9 +335,9 @@ Three consequences worth stating:
    has never run for real is visibly labeled **NO LIVE CALLS**.
 3. **Upgrading an old DB classifies rather than assumes.** `ALTER TABLE … DEFAULT
    'live'` would stamp every pre-existing row as real. The migration instead
-   infers provenance from two fingerprints the writers left behind — measured
+   infers provenance from two fingerprints the writers left behind, measured
    calls carry microsecond timestamps and non-zero latency; seeded rows were
-   authored at round minutes — and defaults to `demo` on ambiguity, because
+   authored at round minutes, and defaults to `demo` on ambiguity, because
    understating spend is visible while overstating it invents money.
 
 Once you have real traffic, drop the samples:
@@ -352,16 +352,16 @@ python -m src.tracker --purge demo      # delete seeded rows, keep billed histor
 ## 8b. Real integration: tracking [civil-prep](https://github.com/POLESTARRR/civil-prep)
 
 The rest of this README's examples are the shipped fake project. This section
-isn't — it's what happened when this tracker was pointed at a second, unrelated
+isn't, it's what happened when this tracker was pointed at a second, unrelated
 real project: **civil-prep**, a UPSC current-affairs RAG system with its own
 retrieval store, its own eval harness, and its own `call_llm()` wrapper (Gemini
 only, no relation to this project's multi-provider one).
 
-civil-prep's own `src/utils.py::call_llm()` doesn't log anywhere — it just
+civil-prep's own `src/utils.py::call_llm()` doesn't log anywhere. It just
 returns text. To measure it without changing its behavior, its `call_llm` was
 wrapped for one run to capture what the Gemini SDK *itself* reports on
-`response.usage_metadata` (`prompt_token_count`, `candidates_token_count`) —
-not an estimate from `len(prompt) // 4`, the provider's own accounting — and
+`response.usage_metadata` (`prompt_token_count`, `candidates_token_count`)
+not an estimate from `len(prompt) // 4`. That is the provider's own accounting, and
 those captured events were logged into this tracker's DB with
 `source="live"`. The questions were civil-prep's own committed
 `eval_questions.json`; the source documents were its own committed
@@ -376,26 +376,26 @@ those captured events were logged into this tracker's DB with
 | Relevance judge | 22 | 11,664 | 66 | $0.001193 |
 | **Total** | **66** | **36,912** | **1,331** | **$0.004224** |
 
-Only 22 of 25 questions got an answer call — the other 3 fell below civil-prep's
+Only 22 of 25 questions got an answer call; the other 3 fell below civil-prep's
 own 0.50 retrieval-confidence threshold and **correctly refused** rather than
 guessing (`ask.py`'s `CONFIDENCE_THRESHOLD` gate; see the code excerpt in
-§1). Those 3 still went through the judge — the faithfulness rubric explicitly
+§1). Those 3 still went through the judge, because the faithfulness rubric explicitly
 scores an honest "I don't have enough information" as 1.0, and this run's
 judge agreed on all three, real evidence the refusal path is doing its job.
 
 At ~$0.0002/question end-to-end (retrieval + answer + both judge calls), running
 every real eval question this system has cost **under half a cent total**.
-That's not a rounding trick — Gemini Flash-Lite genuinely is that cheap, and a
+That's not a rounding trick, Gemini Flash-Lite genuinely is that cheap, and a
 tracker that reported a bigger number here would be reporting something false.
 
 **Something the waste detector caught that's worth stating honestly:** with a
 smaller sample it flagged the answer-generation and judge calls as "duplicate
-prompts." They aren't — they're 22 *different* questions and answers. The
+prompts." They aren't, they're 22 *different* questions and answers. The
 `find_duplicate_calls` heuristic groups by an 80-character `prompt_preview`
 (see `src/waste.py`'s `_MIN_PREVIEW_FOR_DUPLICATE`), and civil-prep's prompts
 open with a long fixed instruction template before the part that actually
 varies per call. Against a system with static, template-heavy prompts, an
-80-char preview isn't enough to tell two calls apart — a real limitation this
+80-char preview isn't enough to tell two calls apart, a real limitation this
 run surfaced, not a bug it hid. The fix (hash the full prompt instead of
 previewing it) is straightforward but wasn't in the original spec; flagging it
 here rather than quietly working around it.
@@ -403,20 +403,20 @@ here rather than quietly working around it.
 **A second real, useful finding from the full run:** every one of the 44 judge
 calls (22 faithfulness + 22 relevance) scored a perfect 1.00. Across 22 varied
 questions spanning four different GS papers, a judge that never disagrees is
-itself worth being suspicious of — either civil-prep's retrieval is genuinely
+itself worth being suspicious of, either civil-prep's retrieval is genuinely
 that precise (plausible; it only answers when confidence clears 0.50, so the
 sample is pre-filtered toward easy cases), or the judge model is too lenient
 to catch a subtly wrong answer. `eval.py`'s own `F1_THRESHOLD = 0.70` CI gate
 would not currently catch a regression, because nothing in this dataset scores
 below 1.0. The honest fix is to run the judge against at least one
-deliberately wrong answer and confirm it scores near 0.0 — that check doesn't
+deliberately wrong answer and confirm it scores near 0.0. That check doesn't
 exist yet in civil-prep's suite.
 
-Combined with `cost-watchdog-self` — this project's own real digest, run for
+Combined with `cost-watchdog-self`. This project's own real digest, run for
 real across every period it supports (`today`, `week`, `month`, `all_time`):
 5 genuine calls, 2,173 tokens, $0.000399, on `gemini-flash-lite-latest` since
 that's the only provider with a live key here (would route to `claude-opus-5`
-if `ANTHROPIC_API_KEY` were set — see `DIGEST_MODEL` in `src/digest.py`) — the
+if `ANTHROPIC_API_KEY` were set, see `DIGEST_MODEL` in `src/digest.py`), the
 dashboard now carries three tracks side by side: one openly fake project for
 demo purposes, and two real ones. `civil-prep`'s calls show `source=live` and
 count toward its own budget; the fake `job-search-agent` data does not.
@@ -424,7 +424,7 @@ count toward its own budget; the fake `job-search-agent` data does not.
 Worth being explicit about why `cost-watchdog-self` is the *smallest* real
 number here, not the largest: the digest is one summarization call per
 period. civil-prep runs a 3-call pipeline (retrieval + answer + two judges)
-for each of 25 questions — 66 calls. A single-call feature will always cost
+for each of 25 questions, 66 calls. A single-call feature will always cost
 less than a 66-call pipeline; running the digest more times than it's
 actually useful to run just to outrank civil-prep's number would be exactly
 the kind of padding this section exists to refuse.
@@ -436,61 +436,61 @@ the kind of padding this section exists to refuse.
 To check whether "small real numbers" is specific to civil-prep or a pattern,
 every other public repo on the same GitHub account was pulled via the GitHub
 API (`api.github.com/users/POLESTARRR/repos`) and checked for whether it
-calls an LLM provider **at all** — by grepping for provider SDK imports and
+calls an LLM provider **at all**, by grepping for provider SDK imports and
 API patterns, not by assumption:
 
 | Repo | Language | Calls an LLM (Anthropic/OpenAI/Google)? | Real tokens tracked |
 |---|---|---|---|
-| [`civil-prep`](https://github.com/POLESTARRR/civil-prep) | Python | **Yes** — Gemini, via its own `call_llm()` | 36,912 in / 1,331 out — $0.004224 |
-| `smart-clinic-project` | Java | **No.** `TokenService.java` is JWT auth (`io.jsonwebtoken`), unrelated to LLM tokens despite the filename. Grepped the whole repo for provider SDK patterns — zero matches. | $0 — not applicable |
-| `EMOTION-DETECTION` | Python | **No.** Calls IBM Watson's NLP emotion-classification endpoint (`sn-watson-emotion.labs.skills.network`) via plain `requests` — a hosted classifier, not a token-billed LLM. | $0 — not applicable |
-| `CODE-OF-CONDUCT` | Shell | **No.** A community-health template repo; its one script is a `bc`-based simple-interest calculator, unrelated to AI entirely. | $0 — not applicable |
+| [`civil-prep`](https://github.com/POLESTARRR/civil-prep) | Python | **Yes**, Gemini, via its own `call_llm()` | 36,912 in / 1,331 out, $0.004224 |
+| `smart-clinic-project` | Java | **No.** `TokenService.java` is JWT auth (`io.jsonwebtoken`), unrelated to LLM tokens despite the filename. Grepped the whole repo for provider SDK patterns, zero matches. | $0, not applicable |
+| `EMOTION-DETECTION` | Python | **No.** Calls IBM Watson's NLP emotion-classification endpoint (`sn-watson-emotion.labs.skills.network`) via plain `requests`, a hosted classifier, not a token-billed LLM. | $0, not applicable |
+| `CODE-OF-CONDUCT` | Shell | **No.** A community-health template repo; its one script is a `bc`-based simple-interest calculator, unrelated to AI entirely. | $0, not applicable |
 
 This is the honest answer to "why is civil-prep's number so small": it isn't
-that the tracking is fake — it's that **most of a real portfolio doesn't call
+that the tracking is fake, it's that **most of a real portfolio doesn't call
 an LLM at all**, and the one project that does uses a model priced at
 $0.10/$0.40 per million tokens. Both facts are real. Neither should be hidden
 to make a chart look busier.
 
 **What this means practically, project by project:**
 
-- **civil-prep** — already efficient (Flash-Lite, confidence-gated refusal,
+- **civil-prep**: already efficient (Flash-Lite, confidence-gated refusal,
   citations on every answer). The one real gap the run surfaced: the
-  LLM-judge eval has no negative test (see §8b above) — add one deliberately
+  LLM-judge eval has no negative test (see §8b above), add one deliberately
   wrong answer to `eval_questions.json`'s test harness so a future regression
   in retrieval quality can actually be caught by CI, not just a drop that
   happens to also stay under a judge that's never seen a wrong answer.
-- **smart-clinic-project** — a pure CRUD hospital-management app today.
+- **smart-clinic-project**: a pure CRUD hospital-management app today.
   If an LLM feature were added later (e.g. drafting a visit summary from
   structured appointment data), this tracker's `call_llm()` wrapper would
-  drop in with one import, same as civil-prep did — no LLM cost exists to
+  drop in with one import, same as civil-prep did. Today no LLM cost exists to
   optimize because none is spent.
-- **EMOTION-DETECTION** — deliberately not migrated to an LLM here: IBM
+- **EMOTION-DETECTION**: deliberately not migrated to an LLM here: IBM
   Watson's classifier is free at this scale and purpose-built for the task;
   swapping in an LLM would trade a $0 hosted classifier for a per-call cost
   to do the same job, which is the opposite of what this project argues for.
-- **CODE-OF-CONDUCT** — a governance template; there is no scenario where
+- **CODE-OF-CONDUCT**: a governance template; there is no scenario where
   this should call an LLM, and it doesn't.
 
-That asymmetry — one project spending real, small, trackable money and three
-spending exactly nothing — is what a real portfolio actually looks like. The
+That asymmetry. One project spending real, small, trackable money and three
+spending exactly nothing, is what a real portfolio actually looks like. The
 dashboard's `civil-prep` project tag reflects it without embellishment.
 
 ---
 
 ## 8d. What it actually cost to *build* these projects with Claude Code
 
-Everything above is *runtime* cost — what civil-prep and this project's own
+Everything above is *runtime* cost, what civil-prep and this project's own
 digest spend when they run. There's a second real number this project can
 answer that nothing above captures: what did it cost, in real Anthropic
 tokens, to **build** them in the first place? Claude Code writes a local
 transcript for every session (`~/.claude/projects/<project>/<session-id>.jsonl`),
 and every assistant turn in it carries the actual `usage` block from the real
-API response Claude received — the same authoritative source every other
+API response Claude received, the same authoritative source every other
 `source=live` row in this project is priced from. `scripts/import_claude_code_usage.py`
 reads that transcript directly and logs each turn as `source="manual"` (real
 spend, reconstructed from an existing record rather than measured live by
-this project's own wrapper — Claude Code isn't calling itself through this
+this project's own wrapper, Claude Code isn't calling itself through this
 codebase, so `call_llm()` never sees these turns), with the turn's real
 historical timestamp, deduped by the API response's own message id so
 re-running on a transcript that's grown only imports what's new.
@@ -509,25 +509,25 @@ Run against the two sessions that actually built these two projects:
 | `civil-prep-build` (the separate session that built civil-prep) | 417 | 89,582,158 | $40.2268 |
 | **Total build cost** | **929** | **243,264,701** | **$130.4298** |
 
-That dwarfs the $0.0046 these two projects have cost to *run* — **by a factor
+That dwarfs the $0.0046 these two projects have cost to *run*, **by a factor
 of about 28,000**. Both numbers are real; they answer different questions.
 Building an app with an agentic coding tool costs vastly more than running
 the finished app, because building means many long turns re-sending a large,
 growing context (this is also why 97% of the Anthropic spend above is
-cache-read, not fresh input — Claude Code aggressively caches conversation
+cache-read, not fresh input, Claude Code aggressively caches conversation
 history, and the dashboard's own "saved by caching" figure now reflects that
 directly). Neither figure should stand in for the other, and this project
 tracks both rather than picking the one that looks better.
 
-**Caveats, stated plainly:** these rows carry `latency_ms=0` — the transcript
+**Caveats, stated plainly:** these rows carry `latency_ms=0`, the transcript
 doesn't record per-turn wall-clock time, and zero is the honest value for
 "not measured," not a guess. The cache-write premium uses this project's
 existing flat `CACHE_WRITE_MULTIPLIER = 1.25`, which is accurate for
 Anthropic's 5-minute ephemeral cache but understates the real premium on
-1-hour ephemeral writes (most of what these sessions used) — meaning the true
+1-hour ephemeral writes (most of what these sessions used), meaning the true
 Anthropic invoice is likely somewhat *higher* than $130.43, not lower. And the
 `llm-cost-watchdog-build` session's transcript also contains this section's
-own writing and the earlier civil-prep integration work (§8b/§8c) — it is the
+own writing and the earlier civil-prep integration work (§8b/§8c). It is the
 literal Claude Code history of this repo, not a hand-curated subset.
 
 ---
@@ -535,7 +535,7 @@ literal Claude Code history of this repo, not a hand-curated subset.
 ## 8e. Adding a project after the dashboard is already deployed
 
 The workflow above assumes the importer runs next to the database. Once the
-*dashboard* is deployed to a public URL (§9) that's no longer true — the
+*dashboard* is deployed to a public URL (§9) that's no longer true, the
 deployed copy has its own database, separate from whatever's on your laptop.
 `POST /import` closes that gap: point `import_claude_code_usage.py` at the
 live URL instead of a local path, and a deployed dashboard picks up a new
@@ -549,11 +549,11 @@ python scripts/import_claude_code_usage.py \
     --import-key "$WATCHDOG_IMPORT_KEY"
 ```
 
-The endpoint is closed by default — `WATCHDOG_IMPORT_KEY` unset means every
+The endpoint is closed by default, `WATCHDOG_IMPORT_KEY` unset means every
 request 403s, not merely-unauthenticated. Set it as a platform secret on the
 deployment (never commit it), and give the same value to `--import-key`
 locally. A wrong or missing key 401s. Cost is **always recomputed server-side**
-from `PRICING_TABLE` — the request body carries tokens and model, never a
+from `PRICING_TABLE`, the request body carries tokens and model, never a
 cost figure, so a leaked key can misreport volume but can't forge a dollar
 amount. Same message-id checkpoint and same-vendor dedup as the local path,
 so a partial network failure just means the next run picks up where it left
@@ -563,17 +563,17 @@ off, never double-logs.
 
 ## 8f. Persistence on a free host: SQLite locally, Turso when deployed
 
-Render's free tier has no persistent disk — every restart wipes anything
+Render's free tier has no persistent disk. Every restart wipes anything
 written to the local filesystem, which would silently erase all tracked
 history. `src/turso_backend.py` swaps the storage backend to
 [Turso](https://turso.tech) (a hosted, SQLite-compatible database with a free
 tier) whenever `TURSO_DATABASE_URL` is set, with zero changes anywhere else in
-the codebase — `tracker.py`'s `_connect()` is the only integration point.
+the codebase, `tracker.py`'s `_connect()` is the only integration point.
 
 This needed a real wrapper, not a drop-in swap: libsql's Python client returns
 plain tuples instead of `sqlite3.Row` (no `row["column"]` access, used
 everywhere in this codebase), has no `.row_factory` to opt into that, and its
-cursor isn't directly iterable the way `sqlite3.Cursor` is — three gaps
+cursor isn't directly iterable the way `sqlite3.Cursor` is, three gaps
 `_TursoRow`/`_Cursor` close, each confirmed against a **real** Turso database
 rather than assumed from docs (the docs I could reach gave inconsistent
 package names and incomplete examples; guessing here would have meant
@@ -585,17 +585,17 @@ silently wrong query results, not just an ImportError).
 2. The actual `tracker.py`/`analyzer.py` functions (`init_db`, `log_usage`,
    `get_events_for_period`, `compute_report`) imported and run for real against
    that database
-3. The literal production container — built from this repo's own Dockerfile,
+3. The literal production container, built from this repo's own Dockerfile,
    `linux/amd64` (Render's real architecture, not this dev machine's arm64),
-   running the real `uvicorn` `CMD` — with `curl` against `/health`,
+   running the real `uvicorn` `CMD`, with `curl` against `/health`,
    `/provenance`, `/import`, and `/report` for real
 
-`libsql` is deliberately **not** in `requirements.txt` — its only prebuilt
+`libsql` is deliberately **not** in `requirements.txt`. Its only prebuilt
 wheels are macOS and `manylinux x86_64`; there's no `linux/arm64` wheel and no
 macOS wheel for this repo's own dev interpreter (Python 3.14), so it fails to
 build from source on this exact machine (confirmed: no Rust toolchain, no
 `cc` linker). It's installed as a separate `RUN pip install` line in the
-Dockerfile instead, which only ever builds for `linux/amd64` — where a real
+Dockerfile instead, which only ever builds for `linux/amd64`, where a real
 wheel exists and the install is fast. Local dev and every test in this repo
 run on plain `sqlite3` unconditionally; `TURSO_DATABASE_URL` is read only
 inside `_connect()`, never at import time, so nothing locally needs `libsql`
@@ -603,7 +603,7 @@ installed at all.
 
 **Where the credentials live, and why not `.env`:** Turso's URL and auth token
 are in `.env.render`, not `.env`. `load_dotenv()` loads `.env` into every local
-process including pytest — putting a remote-database switch in it means local
+process including pytest, putting a remote-database switch in it means local
 dev and the test suite start silently hitting the real production database
 the instant it's set. This broke 155 tests immediately when first tried, which
 is exactly the failure mode `.env.render` (never loaded automatically, purely
@@ -614,7 +614,7 @@ prevent. Both files are gitignored; the actual secrets are never committed.
 
 ## 9. Local by default, deployable when you want a URL to share
 
-The MCP server always runs locally over stdio — that part is correct as-is, not
+The MCP server always runs locally over stdio. That part is correct as-is, not
 a limitation to fix. Claude Desktop launches the process directly; there is no
 network hop, no hosting bill, and no reason your personal spend data needs to
 leave your machine for that half of this project. The SQLite database and
@@ -632,13 +632,13 @@ anywhere; deploying it is opt-in, not required.
 
 ## 10. Tech stack
 
-- **Provider SDKs** — `anthropic`, `openai`, `google-generativeai`. Each behind an adapter implementing one `Provider` protocol, so the rest of the codebase is vendor-agnostic.
-- **SQLite** — structured, numeric, time-series data. A vector DB would be the wrong tool: there is nothing here to search semantically. Schema changes migrate **in place** rather than recreating, because a cost tracker that drops your history on upgrade has destroyed the only thing it exists to keep.
-- **Pydantic** — one schema shared by tracker, analyzer, MCP server, and dashboard, so the shape can't drift between them.
-- **MCP Python SDK** — the core deliverable; stdio transport for local Claude Desktop integration.
-- **FastAPI + vanilla JS** — the dashboard. One HTML file, no React, no npm, no build step, on purpose.
-- **Docker Compose** — one-command dashboard run with `data/` mounted so history survives restarts.
-- **pytest** — the eval suite below.
+- **Provider SDKs**, `anthropic`, `openai`, `google-generativeai`. Each behind an adapter implementing one `Provider` protocol, so the rest of the codebase is vendor-agnostic.
+- **SQLite**: structured, numeric, time-series data. A vector DB would be the wrong tool: there is nothing here to search semantically. Schema changes migrate **in place** rather than recreating, because a cost tracker that drops your history on upgrade has destroyed the only thing it exists to keep.
+- **Pydantic**. One schema shared by tracker, analyzer, MCP server, and dashboard, so the shape can't drift between them.
+- **MCP Python SDK**: the core deliverable; stdio transport for local Claude Desktop integration.
+- **FastAPI + vanilla JS**: the dashboard. One HTML file, no React, no npm, no build step, on purpose.
+- **Docker Compose**: one-command dashboard run with `data/` mounted so history survives restarts.
+- **pytest**: the eval suite below.
 - **No orchestration framework.** The agentic loop is a plain documented function. LangChain here would be machinery without a job.
 
 ---
@@ -658,7 +658,7 @@ anywhere; deploying it is opt-in, not required.
 | `test_guard.py` | 18 | Guard modes, budget/project/rate/per-call trips, fail-safe on bad config |
 | `test_waste.py` | 18 | All four waste checks, plus the overlap cap that stops >100% claims |
 
-**Anomaly detection** — against `sample_usage.json` (44 synthetic events, 6 models, 3 providers, 3 planted spikes):
+**Anomaly detection**: against `sample_usage.json` (44 synthetic events, 6 models, 3 providers, 3 planted spikes):
 
 | Metric | Result |
 |---|---|
@@ -670,11 +670,11 @@ anywhere; deploying it is opt-in, not required.
 
 Detection is also verified against controlled fixtures: a 5× cost spike and an 8× latency spike each caught in isolation; normal variance up to 1.6× ignored; a 4× spike flagged at `3.0` and correctly *not* at `5.0`; an expensive model never flagged merely for being pricier than a cheap one; and a burst of failed calls does not poison the baseline.
 
-**Cost calculation** — asserted against hand-computed values for **every** model in the pricing table, plus: cached tokens always cheaper than uncached; a fully-cached prompt billed entirely at the cached rate; cached + written + uncached partitioning `input_tokens` exactly with no double-billing; the long-context surcharge applying above 272K and **not** at or below it, and **not** to other providers; cache writes surcharged only on models that bill for them.
+**Cost calculation**: asserted against hand-computed values for **every** model in the pricing table, plus: cached tokens always cheaper than uncached; a fully-cached prompt billed entirely at the cached rate; cached + written + uncached partitioning `input_tokens` exactly with no double-billing; the long-context surcharge applying above 272K and **not** at or below it, and **not** to other providers; cache writes surcharged only on models that bill for them.
 
-**Migration** — a v1-schema database is migrated in place with all rows preserved, safe defaults on old rows, idempotent re-runs, and new-format writes accepted afterward. Verified on the real development database: 37/37 rows preserved.
+**Migration**: a v1-schema database is migrated in place with all rows preserved, safe defaults on old rows, idempotent re-runs, and new-format writes accepted afterward. Verified on the real development database: 37/37 rows preserved.
 
-**Privacy** — `prompt_preview` is asserted to never exceed 80 characters anywhere it is returned.
+**Privacy**, `prompt_preview` is asserted to never exceed 80 characters anywhere it is returned.
 
 ---
 
@@ -684,16 +684,16 @@ Detection is also verified against controlled fixtures: a 5× cost spike and an 
 
 1. Pulls the `CostReport` for the period
 2. Pulls anomalies
-3. Sends both to the LLM **through `call_llm()` itself** — so the digest-writing call is tracked in the same table it's reporting on
+3. Sends both to the LLM **through `call_llm()` itself**, so the digest-writing call is tracked in the same table it's reporting on
 4. Saves report + anomalies + generated text to `data/reports/{date}_digest.json`
 
-It is agentic in an honest, narrow sense: it makes a judgment call every week — what's normal, what's worth flagging, what to do about it — without a human framing the question. It is *not* a multi-step tool-using agent and doesn't pretend to be.
+It is agentic in an honest, narrow sense: it makes a judgment call every week, what's normal, what's worth flagging, what to do about it, without a human framing the question. It is *not* a multi-step tool-using agent and doesn't pretend to be.
 
 **Fallback behavior:** if the LLM call fails, the digest does **not** abort. It writes a deterministic plain-text summary and records `"llm_written": false`. A scheduled job that loses its whole run to a transient 429 is a broken job.
 
 ### Postmortem
 
-*Pending.* Reserved for a real incident — what the watchdog caught on live traffic, what was actually happening, and what changed as a result. It will not be filled with a hypothetical.
+*Pending.* Reserved for a real incident, what the watchdog caught on live traffic, what was actually happening, and what changed as a result. It will not be filled with a hypothetical.
 
 ---
 
@@ -702,7 +702,7 @@ It is agentic in an honest, narrow sense: it makes a judgment call every week �
 Stated plainly rather than hidden:
 
 - **Pricing is a snapshot.** Rates were verified against provider pricing pages in August 2026 and are hardcoded. There is no automatic refresh; when a vendor changes prices, `src/pricing.py` needs an edit. `python -m src.pricing` prints the whole table for review.
-- **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
-- **The shipped DB mixes one fake project with real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, ~$19.4, never billed — scaled up from an earlier ~$0.20 revision purely so it isn't dwarfed to invisibility next to real numbers 1000x its size; the labeling, badges, and filtering are unchanged, it's still openly fake). `llm-cost-watchdog-build` / `civil-prep-build` are real *build-time* Claude Code usage imported from local session transcripts (`source=manual`, ~$130 combined — see [§8d](#8d-what-it-actually-cost-to-build-these-projects-with-claude-code)). The small real *runtime* rows from [§8b](#8b-real-integration-tracking-civil-prep)/[§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project) (`civil-prep` / `cost-watchdog-self`, `source=live`, a few thousandths of a dollar) were removed from the shipped DB — several orders of magnitude smaller than build cost, they cluttered the Cost-by-Project view without changing the conclusion. The methodology and code are unchanged and reproducible; §8b/§8c describe what actually happened when they ran, they just aren't sitting in the current snapshot. Run `python -m src.tracker --provenance` for the live numbers, and `--purge demo` to drop the fake project entirely.
+- **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo, because no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
+- **The shipped DB mixes one fake project with real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, ~$19.4, never billed, scaled up from an earlier ~$0.20 revision purely so it isn't dwarfed to invisibility next to real numbers 1000x its size; the labeling, badges, and filtering are unchanged, and it's still openly fake). `llm-cost-watchdog-build` / `civil-prep-build` are real *build-time* Claude Code usage imported from local session transcripts (`source=manual`, ~$130 combined, see [§8d](#8d-what-it-actually-cost-to-build-these-projects-with-claude-code)). The small real *runtime* rows from [§8b](#8b-real-integration-tracking-civil-prep)/[§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project) (`civil-prep` / `cost-watchdog-self`, `source=live`, a few thousandths of a dollar) were removed from the shipped DB, several orders of magnitude smaller than build cost, so they cluttered the Cost-by-Project view without changing the conclusion. The methodology and code are unchanged and reproducible; §8b/§8c describe what actually happened when they ran; they just aren't sitting in the current snapshot. Run `python -m src.tracker --provenance` for the live numbers, and `--purge demo` to drop the fake project entirely.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
-- **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate — which is why every projection carries a `confidence` field.
+- **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate, which is why every projection carries a `confidence` field.

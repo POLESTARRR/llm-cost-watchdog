@@ -1,4 +1,4 @@
-"""Spend guardrails — the only part of this project that stops a call.
+"""Spend guardrails, the only part of this project that stops a call.
 
 These tests matter disproportionately: a guard that fails open silently is
 worse than no guard, because you believe you're protected.
@@ -134,7 +134,7 @@ def test_malformed_project_caps_are_ignored_not_fatal(temp_db, monkeypatch):
 
 def test_circuit_breaker_trips_on_call_burst(temp_db, monkeypatch):
     """The scenario: an agent loop with no exit condition. Rate is the early
-    signal — cost lags far behind volume on cheap models."""
+    signal, cost lags far behind volume on cheap models."""
     monkeypatch.setenv("WATCHDOG_MAX_CALLS_PER_MIN", "10")
     now = datetime.now(timezone.utc).isoformat()
     for _ in range(12):

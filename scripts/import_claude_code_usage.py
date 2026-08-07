@@ -5,9 +5,9 @@ Import real Claude Code build-time usage into the watchdog.
 Claude Code writes a local JSONL transcript per session (default location:
 `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`), and every assistant
 turn in it carries the real `usage` block from the actual Anthropic API
-response it received — input/output tokens, cache-read tokens, cache-write
+response it received, input/output tokens, cache-read tokens, cache-write
 tokens, the works. That is the authoritative source for "what did it cost,
-in real tokens, to build this project with Claude Code" — a number this
+in real tokens, to build this project with Claude Code", a number this
 project's own call_llm() wrapper can never see, because Claude Code isn't
 calling itself through this codebase.
 
@@ -27,7 +27,7 @@ timestamps, not "now".
 
 By default this writes straight to the local SQLite file. Pass --remote-url
 (plus --import-key) to push to a deployed dashboard's /import endpoint
-instead — e.g. a live site updates the moment you run this, no redeploy:
+instead, e.g. a live site updates the moment you run this, no redeploy:
 
     python scripts/import_claude_code_usage.py \\
         --session ~/.claude/projects/-path-to-project/<uuid>.jsonl \\
@@ -188,7 +188,7 @@ def load(
                 log_usage(event, db_path=db_path)
             logged += 1
 
-    # Only commit the checkpoint after the write actually succeeds -- a failed
+    # Only commit the checkpoint after the write actually succeeds, a failed
     # remote push must leave these turns eligible for retry on the next run,
     # not silently marked as already-imported.
     if remote_url and pending:

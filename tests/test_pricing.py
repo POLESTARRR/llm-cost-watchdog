@@ -112,7 +112,7 @@ def test_surcharge_makes_effective_rate_double():
 
 
 def test_surcharge_does_not_apply_to_other_providers():
-    """Anthropic has no long-context surcharge — applying one would overstate."""
+    """Anthropic has no long-context surcharge, applying one would overstate."""
     r = PRICING_TABLE["claude-sonnet-5"]
     n = LONG_CONTEXT_THRESHOLD + 50_000
     assert calculate_cost("claude-sonnet-5", n, 0) == pytest.approx((n / 1000) * r["input"])
