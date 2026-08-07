@@ -24,6 +24,7 @@ from collections import Counter, defaultdict
 from src.analyzer import what_if_switched
 from src.pricing import PRICING_TABLE, calculate_cost, get_rates
 from src.tracker import get_events_for_period
+from src.usage_schema import UsageEvent
 
 # A prompt preview is 80 chars; two calls sharing one are near-certainly the
 # same prompt. Short previews (a truncated system header) are excluded to
@@ -64,14 +65,17 @@ _SIBLING_DOWNGRADE = {
 _MIN_SWITCH_SAVING_USD = 1.0
 
 
-def find_retry_waste(period: str = "week", source: str | None = None) -> dict:
+def find_retry_waste(
+    period: str = "week", source: str | None = None, events: list[UsageEvent] | None = None
+) -> dict:
     """Money and time spent on calls that returned nothing.
 
     Failed calls usually cost $0 directly, but they are not free: they burn
     latency, they consume rate-limit budget, and a high failure rate on one
     model is a signal to switch or back off harder.
     """
-    events = get_events_for_period(period, source=source)
+    if events is None:
+        events = get_events_for_period(period, source=source)
     failed = [e for e in events if not e.success]
 
     by_model: dict[str, int] = Counter(e.model for e in failed)
@@ -112,15 +116,20 @@ def _retry_recommendation(failed: int, total: int, by_model: Counter) -> str:
 
 
 def find_duplicate_calls(
-    period: str = "week", min_repeats: int = 2, source: str | None = None
+    period: str = "week",
+    min_repeats: int = 2,
+    source: str | None = None,
+    events: list[UsageEvent] | None = None,
 ) -> list[dict]:
     """Identical prompts sent more than once.
 
     The cheapest token is the one you don't send. A prompt repeated verbatim
     is either a missing local cache or a loop re-asking the same question.
     """
+    if events is None:
+        events = get_events_for_period(period, source=source)
     events = [
-        e for e in get_events_for_period(period, source=source)
+        e for e in events
         if e.success and len(e.prompt_preview) >= _MIN_PREVIEW_FOR_DUPLICATE
     ]
 
@@ -150,7 +159,10 @@ def find_duplicate_calls(
 
 
 def find_cache_opportunities(
-    period: str = "week", min_input_tokens: int = 1024, source: str | None = None
+    period: str = "week",
+    min_input_tokens: int = 1024,
+    source: str | None = None,
+    events: list[UsageEvent] | None = None,
 ) -> list[dict]:
     """Repeated large prompts that were never served from cache.
 
@@ -159,8 +171,10 @@ def find_cache_opportunities(
     finds the traffic where turning it on would actually pay, and prices the
     saving using the model's real cached rate.
     """
+    if events is None:
+        events = get_events_for_period(period, source=source)
     events = [
-        e for e in get_events_for_period(period, source=source)
+        e for e in events
         if e.success and e.input_tokens >= min_input_tokens
     ]
 
@@ -200,15 +214,19 @@ def find_cache_opportunities(
     return rows
 
 
-def find_overpowered_calls(period: str = "week", source: str | None = None) -> list[dict]:
+def find_overpowered_calls(
+    period: str = "week", source: str | None = None, events: list[UsageEvent] | None = None
+) -> list[dict]:
     """Frontier models doing work a cheap model would have handled.
 
     Heuristic, and labeled as one: short input AND short output on an
     expensive model. It cannot know the task was easy — only that the shape
     of the call looks trivial. Treat it as a prompt to review, not a verdict.
     """
+    if events is None:
+        events = get_events_for_period(period, source=source)
     events = [
-        e for e in get_events_for_period(period, source=source)
+        e for e in events
         if e.success
         and e.model.startswith(_FRONTIER_PREFIXES)
         and e.output_tokens <= _TRIVIAL_OUTPUT_TOKENS
@@ -254,7 +272,9 @@ def find_overpowered_calls(period: str = "week", source: str | None = None) -> l
     return rows
 
 
-def find_model_switch_savings(period: str = "week", source: str | None = None) -> list[dict]:
+def find_model_switch_savings(
+    period: str = "week", source: str | None = None, events: list[UsageEvent] | None = None
+) -> list[dict]:
     """What your real traffic on each model would have cost on its cheaper
     same-vendor sibling — re-priced on the actual calls you made, not a
     trivial-length heuristic.
@@ -264,14 +284,16 @@ def find_model_switch_savings(period: str = "week", source: str | None = None) -
     traffic too — a long build session that ran on Opus when Sonnet would
     have done the same job for 40% less is exactly the case this exists for.
     """
-    events = [e for e in get_events_for_period(period, source=source) if e.success]
+    if events is None:
+        events = get_events_for_period(period, source=source)
+    events = [e for e in events if e.success]
     models_present = {e.model for e in events}
 
     rows = []
     for frm, to in _SIBLING_DOWNGRADE.items():
         if frm not in models_present or to not in PRICING_TABLE:
             continue
-        result = what_if_switched(frm, to, period=period)
+        result = what_if_switched(frm, to, period=period, events=events)
         if result.get("verdict") == "cheaper" and result.get("savings_usd", 0) >= _MIN_SWITCH_SAVING_USD:
             rows.append({
                 "from_model": frm,
@@ -294,12 +316,23 @@ def find_model_switch_savings(period: str = "week", source: str | None = None) -
 
 
 def find_waste(period: str = "week", source: str | None = None) -> dict:
-    """Run every waste check and total the recoverable spend."""
-    retries = find_retry_waste(period, source=source)
-    duplicates = find_duplicate_calls(period, source=source)
-    cache_ops = find_cache_opportunities(period, source=source)
-    overpowered = find_overpowered_calls(period, source=source)
-    model_switches = find_model_switch_savings(period, source=source)
+    """Run every waste check and total the recoverable spend.
+
+    Fetches the period's events exactly once and hands the same list to
+    every sub-check -- each check independently querying get_events_for_period
+    meant one /waste request issued ~9 separate DB round-trips over identical
+    data. Against local SQLite that was free; against a remote Turso database
+    it was the difference between the dashboard's /waste panel responding in
+    ~2s and it timing out past 45s. See src/tracker.py's _connect() for the
+    other half of that fix.
+    """
+    events = get_events_for_period(period, source=source)
+
+    retries = find_retry_waste(period, source=source, events=events)
+    duplicates = find_duplicate_calls(period, source=source, events=events)
+    cache_ops = find_cache_opportunities(period, source=source, events=events)
+    overpowered = find_overpowered_calls(period, source=source, events=events)
+    model_switches = find_model_switch_savings(period, source=source, events=events)
 
     by_category = {
         "duplicate_calls": sum(r["avoidable_cost_usd"] for r in duplicates),
@@ -308,7 +341,7 @@ def find_waste(period: str = "week", source: str | None = None) -> dict:
         "model_switches": sum(r["estimated_saving_usd"] for r in model_switches),
     }
 
-    total = compute_total(period, source=source)
+    total = sum(e.cost_usd for e in events)
 
     # The categories OVERLAP — a duplicated call is also a cache opportunity,
     # and both may also be over-powered. Summing them naively can exceed total
@@ -340,10 +373,6 @@ def find_waste(period: str = "week", source: str | None = None) -> dict:
         "model_switches": model_switches,
         "top_action": _top_action(duplicates, cache_ops, overpowered, retries, model_switches),
     }
-
-
-def compute_total(period: str, source: str | None = None) -> float:
-    return sum(e.cost_usd for e in get_events_for_period(period, source=source))
 
 
 def _top_action(duplicates, cache_ops, overpowered, retries, model_switches=()) -> str:
