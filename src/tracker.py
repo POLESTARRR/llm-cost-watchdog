@@ -78,6 +78,9 @@ VALID_SOURCES = ("live", "demo", "manual")
 BILLED_SOURCES = "live,manual"
 
 
+_turso_conn = None  # process-wide singleton -- see below
+
+
 @contextmanager
 def _connect(db_path: str | None = None):
     # A remote Turso database, when configured, always wins over any local
@@ -86,20 +89,36 @@ def _connect(db_path: str | None = None):
     # dev and the test suite never set TURSO_DATABASE_URL, so this branch
     # is inert for them. See src/turso_backend.py for why a wrapper is
     # needed at all rather than using libsql's connection directly.
+    #
+    # The Turso connection is cached process-wide and never closed here:
+    # opening a TursoConnection does a real network sync, and this codebase
+    # calls _connect() once per query (not once per request), so reconnecting
+    # every call paid that sync twice per query. Confirmed against the real
+    # deployment: find_waste() alone issues ~9 queries and was timing out at
+    # 45s+ from reconnect overhead alone before this was cached. Writes made
+    # outside this process (e.g. a direct migration against the Turso HTTP
+    # API) won't be visible until this process restarts -- an accepted
+    # tradeoff since normal writes all go through this same cached connection.
     turso_url = os.environ.get("TURSO_DATABASE_URL")
     if turso_url:
-        from src.turso_backend import TursoConnection
-        conn = TursoConnection(turso_url, os.environ["TURSO_AUTH_TOKEN"])
+        global _turso_conn
+        if _turso_conn is None:
+            from src.turso_backend import TursoConnection
+            _turso_conn = TursoConnection(turso_url, os.environ["TURSO_AUTH_TOKEN"])
+        conn = _turso_conn
+        should_close = False
     else:
         resolved = resolve_db_path(db_path)
         Path(resolved).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(resolved)
         conn.row_factory = sqlite3.Row
+        should_close = True
     try:
         yield conn
         conn.commit()
     finally:
-        conn.close()
+        if should_close:
+            conn.close()
 
 
 def init_db(db_path: str | None = None) -> None:
