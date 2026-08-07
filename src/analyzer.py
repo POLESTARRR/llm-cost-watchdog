@@ -296,17 +296,24 @@ def provider_breakdown(period: str = "week", source: str | None = None) -> list[
 
 
 def what_if_switched(
-    from_model: str, to_model: str, period: str = "week", source: str | None = None
+    from_model: str,
+    to_model: str,
+    period: str = "week",
+    source: str | None = None,
+    events: list | None = None,
 ) -> dict:
     """Re-price this period's real traffic as if it had run on another model.
 
     Turns "should I switch models?" from a guess into arithmetic, using your
     own token counts rather than a vendor's benchmark.
+
+    `events`, if given, is this period's already-fetched events (e.g. from
+    find_waste(), which calls this once per candidate sibling pair and would
+    otherwise re-query the same period from scratch each time).
     """
-    events = [
-        e for e in get_events_for_period(period, source=source)
-        if e.success and e.model == from_model
-    ]
+    if events is None:
+        events = get_events_for_period(period, source=source)
+    events = [e for e in events if e.success and e.model == from_model]
     if not events:
         return {
             "from_model": from_model,
