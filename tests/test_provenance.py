@@ -20,6 +20,7 @@ from src.analyzer import check_budget_status, compute_report, project_burn_rate,
 from src.guard import check_guards
 from src.tracker import (
     BILLED_SOURCES,
+    RUNTIME_SOURCES,
     VALID_SOURCES,
     batch_load,
     get_events_for_period,
@@ -205,7 +206,7 @@ def test_budget_ignores_demo_rows_by_default(temp_db, monkeypatch):
     # $5 of seeded data would read as 500% of a $1 budget.
     assert status["status"] == "under"
     assert status["spend_usd"] == 0.10
-    assert status["source_filter"] == BILLED_SOURCES
+    assert status["source_filter"] == RUNTIME_SOURCES
 
 
 def test_budget_can_be_asked_to_include_demo_rows(temp_db, monkeypatch):
@@ -213,6 +214,41 @@ def test_budget_can_be_asked_to_include_demo_rows(temp_db, monkeypatch):
     log_usage(_event(cost=5.00, source="demo"), db_path=temp_db)
 
     assert check_budget_status("weekly", source="all")["status"] == "over"
+
+
+# --- backfilled build cost is real money, but not a weekly run rate ---------
+
+def test_budget_ignores_backfilled_build_cost_by_default(temp_db, monkeypatch):
+    """Importing a Claude Code transcript must not read as this week's spend.
+
+    `manual` rows are real money, unlike demo rows — but they are reconstructed
+    from an existing record after the fact, so a bulk import of several
+    projects' build cost would otherwise report "over budget" for a week in
+    which nothing new was actually run.
+    """
+    monkeypatch.setenv("WEEKLY_BUDGET_USD", "1.00")
+    log_usage(_event(cost=50.00, source="manual"), db_path=temp_db)
+    log_usage(_event(cost=0.10, source="live"), db_path=temp_db)
+
+    status = check_budget_status("weekly")
+
+    assert status["status"] == "under"
+    assert status["spend_usd"] == 0.10
+
+    # ...but it is still real money, and still counted as such on request.
+    assert check_budget_status("weekly", source=BILLED_SOURCES)["status"] == "over"
+
+
+def test_backfilled_build_cost_does_not_block_live_calls(temp_db, monkeypatch):
+    """A guardrail cannot prevent spend that already happened last week."""
+    monkeypatch.setenv("WATCHDOG_GUARD_MODE", "block")
+    monkeypatch.setenv("WEEKLY_BUDGET_USD", "1.00")
+    log_usage(_event(cost=50.00, source="manual"), db_path=temp_db)
+
+    verdict = check_guards()
+
+    assert verdict.allowed
+    assert "weekly_budget" not in verdict.triggered
 
 
 def test_guard_does_not_trip_on_seeded_spend(temp_db, monkeypatch):

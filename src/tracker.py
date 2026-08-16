@@ -42,9 +42,12 @@ CREATE TABLE IF NOT EXISTS usage_events (
     output_tokens INTEGER NOT NULL,
     cached_input_tokens INTEGER NOT NULL DEFAULT 0,
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0,
     cost_usd REAL NOT NULL,
     latency_ms REAL NOT NULL,
     prompt_preview TEXT,
+    prompt_hash TEXT,
+    service_tier TEXT NOT NULL DEFAULT 'standard',
     success INTEGER NOT NULL,
     error TEXT,
     source TEXT NOT NULL DEFAULT 'live'
@@ -59,6 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_model ON usage_events(model);
 CREATE INDEX IF NOT EXISTS idx_usage_events_provider ON usage_events(provider);
 CREATE INDEX IF NOT EXISTS idx_usage_events_project ON usage_events(project_tag);
 CREATE INDEX IF NOT EXISTS idx_usage_events_source ON usage_events(source);
+CREATE INDEX IF NOT EXISTS idx_usage_events_prompt_hash ON usage_events(prompt_hash);
 """
 
 # Columns added after v1 shipped. A watchdog that loses your cost history on
@@ -68,14 +72,39 @@ _MIGRATIONS = [
     ("cached_input_tokens", "INTEGER NOT NULL DEFAULT 0"),
     ("cache_write_tokens", "INTEGER NOT NULL DEFAULT 0"),
     ("source", "TEXT NOT NULL DEFAULT 'live'"),
+    ("cache_write_1h_tokens", "INTEGER NOT NULL DEFAULT 0"),
+    ("prompt_hash", "TEXT"),
+    ("service_tier", "TEXT NOT NULL DEFAULT 'standard'"),
 ]
 
-VALID_SOURCES = ("live", "demo", "manual")
+VALID_SOURCES = ("live", "demo", "manual", "subscription")
 
-# The rows representing money that actually left your account. Anything that
-# enforces or projects real spend filters to this — a seeded demo row must
-# never trip a real budget or block a real call.
+# The rows representing money that actually left your account, per token.
+# Anything *reporting billed spend* filters to this.
+#
+# `subscription` is deliberately NOT here. Claude Code usage on a Pro/Max plan
+# is real tokens doing real work, but it is covered by a flat monthly fee — no
+# per-token charge ever occurred. Counting it as billed spend would overstate
+# money actually spent by the entire build cost, which is the largest number in
+# this database. It is reported instead as list-price-equivalent *value*; see
+# LIST_PRICE_SOURCES and analyzer.subscription_roi().
 BILLED_SOURCES = "live,manual"
+
+# Every row that represents real token consumption at real published rates,
+# whether or not it was metered. This is the honest denominator for "what did
+# this work cost to produce" — it just isn't a claim about your bank balance.
+LIST_PRICE_SOURCES = "live,manual,subscription"
+
+# The subset of billed rows that represents an ongoing *run rate*: calls this
+# wrapper made and measured itself. `manual` rows are real money too, but they
+# are backfilled after the fact from an existing record (a Claude Code
+# transcript), so they are history, not a rate — importing five build
+# transcripts in one afternoon says nothing about what next week will cost.
+#
+# Anything that compares spend to a *weekly budget*, or extrapolates a burn
+# rate, uses this instead of BILLED_SOURCES. Build cost stays fully visible in
+# the totals and the per-project breakdown; it just isn't treated as recurring.
+RUNTIME_SOURCES = "live"
 
 
 _turso_conn = None  # process-wide singleton -- see below
@@ -168,36 +197,50 @@ def _backfill_source(conn: sqlite3.Connection) -> None:
     )
 
 
+_INSERT_SQL = """
+INSERT INTO usage_events
+    (id, timestamp, model, provider, project_tag,
+     input_tokens, output_tokens, cached_input_tokens, cache_write_tokens,
+     cache_write_1h_tokens, cost_usd, latency_ms, prompt_preview, prompt_hash,
+     service_tier, success, error, source)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def _insert_params(event: UsageEvent) -> tuple:
+    """Column values for _INSERT_SQL, in order.
+
+    Shared by log_usage and log_usage_many so the column list can only ever be
+    wrong in one place — adding a column to one writer and not the other was
+    the obvious failure mode of the previous duplicated version.
+    """
+    return (
+        event.id,
+        event.timestamp,
+        event.model,
+        event.provider,
+        event.project_tag,
+        event.input_tokens,
+        event.output_tokens,
+        event.cached_input_tokens,
+        event.cache_write_tokens,
+        event.cache_write_1h_tokens,
+        event.cost_usd,
+        event.latency_ms,
+        event.prompt_preview,
+        event.prompt_hash,
+        event.service_tier,
+        int(event.success),
+        event.error,
+        event.source,
+    )
+
+
 def log_usage(event: UsageEvent, db_path: str | None = None) -> None:
     """Persist a single UsageEvent to SQLite."""
     init_db(db_path)
     with _connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO usage_events
-                (id, timestamp, model, provider, project_tag,
-                 input_tokens, output_tokens, cached_input_tokens, cache_write_tokens,
-                 cost_usd, latency_ms, prompt_preview, success, error, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event.id,
-                event.timestamp,
-                event.model,
-                event.provider,
-                event.project_tag,
-                event.input_tokens,
-                event.output_tokens,
-                event.cached_input_tokens,
-                event.cache_write_tokens,
-                event.cost_usd,
-                event.latency_ms,
-                event.prompt_preview,
-                int(event.success),
-                event.error,
-                event.source,
-            ),
-        )
+        conn.execute(_INSERT_SQL, _insert_params(event))
 
 
 def log_usage_many(events: list[UsageEvent], db_path: str | None = None) -> None:
@@ -214,32 +257,7 @@ def log_usage_many(events: list[UsageEvent], db_path: str | None = None) -> None
     init_db(db_path)
     with _connect(db_path) as conn:
         for event in events:
-            conn.execute(
-                """
-                INSERT INTO usage_events
-                    (id, timestamp, model, provider, project_tag,
-                     input_tokens, output_tokens, cached_input_tokens, cache_write_tokens,
-                     cost_usd, latency_ms, prompt_preview, success, error, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.id,
-                    event.timestamp,
-                    event.model,
-                    event.provider,
-                    event.project_tag,
-                    event.input_tokens,
-                    event.output_tokens,
-                    event.cached_input_tokens,
-                    event.cache_write_tokens,
-                    event.cost_usd,
-                    event.latency_ms,
-                    event.prompt_preview,
-                    int(event.success),
-                    event.error,
-                    event.source,
-                ),
-            )
+            conn.execute(_INSERT_SQL, _insert_params(event))
 
 
 def get_events(
@@ -290,9 +308,12 @@ def get_events(
             output_tokens=row["output_tokens"],
             cached_input_tokens=_row_get(row, "cached_input_tokens", 0),
             cache_write_tokens=_row_get(row, "cache_write_tokens", 0),
+            cache_write_1h_tokens=_row_get(row, "cache_write_1h_tokens", 0),
             cost_usd=row["cost_usd"],
             latency_ms=row["latency_ms"],
             prompt_preview=row["prompt_preview"] or "",
+            prompt_hash=_row_get(row, "prompt_hash", None),
+            service_tier=_row_get(row, "service_tier", "standard"),
             success=bool(row["success"]),
             error=row["error"],
             source=_row_get(row, "source", "live"),
@@ -334,13 +355,21 @@ def source_totals(period: str = "all_time", db_path: str | None = None) -> dict:
         calls[e.source] = calls.get(e.source, 0) + 1
 
     billed = round(cost.get("live", 0.0) + cost.get("manual", 0.0), 6)
+    subscription = round(cost.get("subscription", 0.0), 6)
     total = round(sum(cost.values()), 6)
     return {
         "period": period,
         "cost_by_source": cost,
         "calls_by_source": calls,
         "total_cost_usd": total,
+        # Money metered and charged per token.
         "billed_cost_usd": billed,
+        # Real tokens under a flat-fee plan: list-price value, not money spent.
+        "subscription_cost_usd": subscription,
+        "has_subscription_data": calls.get("subscription", 0) > 0,
+        # Everything real, priced at list — billed + subscription. The honest
+        # answer to "what did this work cost to produce".
+        "list_price_cost_usd": round(billed + subscription, 6),
         "demo_cost_usd": round(cost.get("demo", 0.0), 6),
         "has_demo_data": calls.get("demo", 0) > 0,
         "demo_percent_of_total": round((cost.get("demo", 0.0) / total) * 100, 2) if total else 0.0,
@@ -400,11 +429,14 @@ def batch_load(json_path: str, db_path: str | None = None, source: str = "demo")
         model = raw["model"]
         cached = raw.get("cached_input_tokens", 0)
         written = raw.get("cache_write_tokens", 0)
+        written_1h = raw.get("cache_write_1h_tokens", 0)
+        tier = raw.get("service_tier", "standard")
 
         cost_usd = raw.get("cost_usd")
         if cost_usd is None:
             cost_usd = calculate_cost(
-                model, raw["input_tokens"], raw["output_tokens"], cached, written
+                model, raw["input_tokens"], raw["output_tokens"], cached, written,
+                cache_write_1h_tokens=written_1h, service_tier=tier,
             )
 
         event = UsageEvent(
@@ -415,9 +447,12 @@ def batch_load(json_path: str, db_path: str | None = None, source: str = "demo")
             output_tokens=raw["output_tokens"],
             cached_input_tokens=cached,
             cache_write_tokens=written,
+            cache_write_1h_tokens=written_1h,
             cost_usd=cost_usd,
             latency_ms=raw["latency_ms"],
             prompt_preview=UsageEvent.make_preview(raw.get("prompt_preview", "")),
+            prompt_hash=raw.get("prompt_hash"),
+            service_tier=tier,
             success=raw.get("success", True),
             error=raw.get("error"),
             source=raw.get("source", source),

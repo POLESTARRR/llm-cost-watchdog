@@ -201,16 +201,42 @@ def test_endpoints_reject_invalid_sources(client, bad):
     assert res.status_code == 422
 
 
-def test_budget_defaults_to_billed_rows_only(client):
-    """The fixture is 100% demo data, so a budget over real money reads $0."""
+def test_budget_defaults_to_runtime_rows_only(client):
+    """The fixture is 100% demo data, so a budget over real money reads $0.
+
+    The default is `live` rather than `live,manual`: a weekly budget describes
+    an ongoing run rate, and backfilled build-cost imports are history.
+    """
     body = client.get("/budget").json()
     assert body["spend_usd"] == 0.0
-    assert body["source_filter"] == "live,manual"
+    assert body["source_filter"] == "live"
 
 
-def test_budget_includes_demo_when_explicitly_asked(client):
-    body = client.get("/budget?source=all").json()
-    assert body["spend_usd"] > 0.0
+def test_budget_includes_demo_when_explicitly_asked(client, temp_db):
+    """Asking for every source must count demo rows the default excludes.
+
+    Seeds its own row rather than relying on sample_usage.json: the fixture's
+    timestamps are fixed, so as the file ages out of the trailing 7-day window
+    a weekly budget over it reads $0 regardless of the source filter, and this
+    test silently stopped exercising the behaviour it names.
+    """
+    from src.tracker import log_usage
+    from src.usage_schema import UsageEvent
+
+    log_usage(
+        UsageEvent(
+            model="claude-opus-5", provider="anthropic", project_tag="demo-proj",
+            input_tokens=1000, output_tokens=100, cost_usd=0.5,
+            latency_ms=100.0, source="demo",
+        ),
+        db_path=temp_db,
+    )
+
+    default_body = client.get("/budget").json()
+    all_body = client.get("/budget?source=all").json()
+
+    assert default_body["spend_usd"] == 0.0  # demo row excluded by default
+    assert all_body["spend_usd"] > 0.0       # and counted when asked for
 
 
 def test_calls_carry_their_source(client):

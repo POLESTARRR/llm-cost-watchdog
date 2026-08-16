@@ -125,20 +125,34 @@ def find_duplicate_calls(
 
     The cheapest token is the one you don't send. A prompt repeated verbatim
     is either a missing local cache or a loop re-asking the same question.
+
+    Grouped by `prompt_hash` — a SHA-256 of the whole prompt — wherever a row
+    has one, falling back to the 80-character preview only for rows predating
+    the column. That fallback is the *known false positive* this project
+    documented against civil-prep: 22 genuinely different questions shared a
+    long fixed instruction template, so their previews were identical and the
+    detector called them duplicates. Comparing whole prompts removes an entire
+    class of wrong answer, and `matched_on` says which comparison was used so
+    a preview-matched row can be read with the appropriate suspicion.
     """
     if events is None:
         events = get_events_for_period(period, source=source)
     events = [
         e for e in events
-        if e.success and len(e.prompt_preview) >= _MIN_PREVIEW_FOR_DUPLICATE
+        if e.success
+        and (e.prompt_hash or len(e.prompt_preview) >= _MIN_PREVIEW_FOR_DUPLICATE)
     ]
 
-    groups: dict[tuple[str, str], list] = defaultdict(list)
+    # Key on the hash when present so hashed and unhashed rows for the same
+    # model can never land in one group and be compared on different bases.
+    groups: dict[tuple[str, str, str], list] = defaultdict(list)
     for e in events:
-        groups[(e.model, e.prompt_preview)].append(e)
+        basis = "hash" if e.prompt_hash else "preview"
+        key = e.prompt_hash or e.prompt_preview
+        groups[(e.model, basis, key)].append(e)
 
     rows = []
-    for (model, preview), items in groups.items():
+    for (model, basis, _key), items in groups.items():
         if len(items) < min_repeats:
             continue
         total = sum(e.cost_usd for e in items)
@@ -147,7 +161,8 @@ def find_duplicate_calls(
         rows.append({
             "model": model,
             "provider": items[0].provider,
-            "prompt_preview": preview,
+            "prompt_preview": items[0].prompt_preview,
+            "matched_on": basis,
             "times_sent": len(items),
             "total_cost_usd": round(total, 6),
             "avoidable_cost_usd": round(avoidable, 6),
