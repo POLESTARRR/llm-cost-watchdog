@@ -98,12 +98,19 @@ def call_llm(
     project_tag: str = "default",
     max_retries: int | None = None,
     skip_guards: bool = False,
+    model_group: str | None = None,
 ) -> str:
     """Call any supported LLM, track the call, and return the response text.
 
     The provider is inferred from the model ID — `claude-*` goes to Anthropic,
     `gpt-*`/`o*` to OpenAI, `gemini-*` to Google — so callers never name a
     provider.
+
+    Pass `model_group` instead of `model` to let src/router.py choose from a
+    declared group using recorded history (cost, latency, failure rate),
+    skipping any member that is cooling down after a rate limit. The chosen
+    model is logged, so a routing decision can be audited against the same
+    ledger that informed it.
 
     Every call is logged as a UsageEvent before this function returns or
     raises, including failures. Retries on rate limits are logged as separate
@@ -112,6 +119,22 @@ def call_llm(
     itself a cost signal.
     """
     retries = MAX_RETRIES if max_retries is None else max_retries
+
+    group_members: list[str] = []
+    if model_group:
+        from src.router import RoutingError, select
+
+        try:
+            decision = select(model_group, estimated_input_tokens=len(prompt) // 4)
+        except RoutingError:
+            logger.error("call_llm: routing failed for group %r", model_group)
+            raise
+        model = decision.model
+        group_members = decision.candidates
+        logger.info(
+            "call_llm routed | group=%s -> %s via %s (%s)",
+            model_group, model, decision.strategy, decision.basis,
+        )
 
     # Pre-flight guardrails. In `block` mode this raises BudgetExceededError
     # before any request goes out — the one place this project stops spend
@@ -135,7 +158,18 @@ def call_llm(
         if not _is_rate_limit(exc):
             raise
 
-        candidates = _fallback_candidates(exclude_provider=_safe_infer(model))
+        # Bench the exhausted model so the *next* call skips it instead of
+        # rediscovering the same 429. Cheap insurance, and the one piece of
+        # state that makes repeated routing better than repeated guessing.
+        _bench(model)
+
+        # Within a group, the rest of the group is the natural fallback set —
+        # the caller already declared those models interchangeable. Outside
+        # one, fall back to the cross-provider defaults.
+        if group_members:
+            candidates = [m for m in group_members if m != model]
+        else:
+            candidates = _fallback_candidates(exclude_provider=_safe_infer(model))
         if not candidates:
             raise
 
@@ -148,6 +182,7 @@ def call_llm(
             except Exception as alt_exc:
                 if not _is_rate_limit(alt_exc):
                     raise
+                _bench(alt)
                 continue
 
         logger.error("call_llm: every provider exhausted (tried %s)", [model, *candidates])
@@ -165,6 +200,7 @@ def _attempt_model(
     provider_name = _safe_infer(model)
     provider = get_provider(model)
     prompt_preview = UsageEvent.make_preview(prompt)
+    prompt_hash = UsageEvent.make_hash(prompt)
     last_exc: Exception | None = None
 
     for attempt in range(retries + 1):
@@ -193,6 +229,7 @@ def _attempt_model(
                     cost_usd=cost_usd,
                     latency_ms=latency_ms,
                     prompt_preview=prompt_preview,
+                    prompt_hash=prompt_hash,
                     success=True,
                 )
             )
@@ -217,6 +254,7 @@ def _attempt_model(
                     cost_usd=0.0,
                     latency_ms=latency_ms,
                     prompt_preview=prompt_preview,
+                    prompt_hash=prompt_hash,
                     success=False,
                     error=str(exc)[:500],
                 )
@@ -237,6 +275,21 @@ def _attempt_model(
             time.sleep(delay)
 
     raise last_exc  # pragma: no cover - loop always returns or raises
+
+
+def _bench(model: str) -> None:
+    """Put a rate-limited model on cooldown, best-effort.
+
+    Never allowed to fail the call: cooldown is an optimisation for the next
+    request, and losing a response because the bookkeeping raised would be a
+    strictly worse outcome than not benching.
+    """
+    try:
+        from src.router import start_cooldown
+
+        start_cooldown(model, reason="rate limit")
+    except Exception:  # pragma: no cover - defensive
+        logger.debug("could not record cooldown for %s", model, exc_info=True)
 
 
 def _safe_infer(model: str) -> str:
