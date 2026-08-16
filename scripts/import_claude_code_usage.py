@@ -63,7 +63,7 @@ MODEL_MAP = {
 }
 
 
-# A derived latency above this is not a measurement of anything — it means the
+# A derived latency above this is not a measurement of anything, it means the
 # session was idle (laptop closed, user away) between the prompt and the reply.
 # Dropped to 0.0 ("not measured") rather than recorded, because a 4-hour
 # "latency" would wreck the anomaly detector's rolling averages.
@@ -94,12 +94,12 @@ def _derive_latency_ms(prev_ts: str | None, turn_ts: str | None) -> float:
     The transcript has no explicit per-turn latency field, but every record is
     timestamped. The gap from the preceding record (the user message, or the
     tool result that unblocked the model) to this assistant turn is the time
-    the request actually took — it excludes user think time, because a user
+    the request actually took, it excludes user think time, because a user
     message is stamped when it is *sent*, not when it was started.
 
     This is a derived figure and labelled as one. It is an upper bound: it
-    includes client-side overhead alongside real API latency. Returns 0.0 —
-    the project's existing "not measured" value — when it cannot be derived
+    includes client-side overhead alongside real API latency. Returns 0.0,
+    the project's existing "not measured" value, when it cannot be derived
     or is implausibly large.
     """
     a, b = _parse_ts(prev_ts), _parse_ts(turn_ts)
@@ -114,7 +114,7 @@ def _derive_latency_ms(prev_ts: str | None, turn_ts: str | None) -> float:
 def _prompt_text(record: dict) -> str:
     """Flatten a user/tool-result record into the text the model was given.
 
-    Used only to hash — never stored. Lets duplicate detection compare whole
+    Used only to hash, never stored. Lets duplicate detection compare whole
     prompts instead of an 80-character preview, which could not tell two calls
     apart when they shared a long fixed instruction template.
     """
@@ -182,7 +182,7 @@ def load(
     """Import one transcript's assistant turns.
 
     `only_message_ids`, when given, restricts the import to those API message
-    ids — used when one transcript interleaves several projects and each
+    ids, used when one transcript interleaves several projects and each
     project's turns have been attributed separately upstream.
     """
     checkpoint = _checkpoint_path(path, project_tag)
@@ -197,7 +197,7 @@ def load(
     total_tokens = 0
 
     # The record immediately before an assistant turn is the prompt that
-    # produced it — used for the derived latency and the prompt hash.
+    # produced it, used for the derived latency and the prompt hash.
     prev_ts: str | None = None
     prev_hash: str | None = None
     latency_derived = 0

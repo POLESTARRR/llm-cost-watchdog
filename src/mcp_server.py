@@ -235,7 +235,7 @@ def log_manual_entry(
                 "subscription get me' or 'was it worth it'. Returns the list-price value of "
                 "tokens consumed, the subscription cost for the span they cover, and the "
                 "ratio. Critically: no per-token charge occurred for these rows, so this is "
-                "value delivered, not money spent — never describe it as billed spend."
+                "value delivered, not money spent, never describe it as billed spend."
 )
 def get_subscription_roi(period: str = "all_time") -> dict:
     if period not in _VALID_PERIODS:
@@ -246,7 +246,7 @@ def get_subscription_roi(period: str = "all_time") -> dict:
 @server.tool(
     description="Show the router's current configuration: declared model groups, the active "
                 "routing strategy, which models are cooling down after a rate limit and for "
-                "how long, and any group member missing from the pricing table. Read-only — "
+                "how long, and any group member missing from the pricing table. Read-only, "
                 "dispatches nothing."
 )
 def get_router_status() -> dict:
@@ -278,7 +278,7 @@ def simulate_routing(
     description="Check this project's hardcoded pricing table against LiteLLM's public, "
                 "community-maintained price map and report any rate that disagrees. Use when "
                 "asked whether the pricing is current or why a cost figure looks off. Reports "
-                "drift only — it never rewrites a rate, because silently re-pricing recorded "
+                "drift only, it never rewrites a rate, because silently re-pricing recorded "
                 "history is worse than a stale number. Set refresh=true to re-download."
 )
 def check_pricing_drift(refresh: bool = False) -> dict:

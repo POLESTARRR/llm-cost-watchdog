@@ -221,7 +221,7 @@ def test_budget_can_be_asked_to_include_demo_rows(temp_db, monkeypatch):
 def test_budget_ignores_backfilled_build_cost_by_default(temp_db, monkeypatch):
     """Importing a Claude Code transcript must not read as this week's spend.
 
-    `manual` rows are real money, unlike demo rows — but they are reconstructed
+    `manual` rows are real money, unlike demo rows, but they are reconstructed
     from an existing record after the fact, so a bulk import of several
     projects' build cost would otherwise report "over budget" for a week in
     which nothing new was actually run.

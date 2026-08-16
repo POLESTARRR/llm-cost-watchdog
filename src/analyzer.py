@@ -188,7 +188,7 @@ def subscription_roi(period: str = "all_time") -> dict:
     """What a flat-fee plan returned in list-price API value.
 
     Claude Code usage on a Pro/Max plan consumes real tokens at real published
-    rates, but no per-token charge occurs — so reporting it as money spent
+    rates, but no per-token charge occurs, so reporting it as money spent
     would overstate actual spend by the entire build cost. Reporting it as
     nothing would be worse: the work happened and it has a market price.
 
@@ -210,7 +210,7 @@ def subscription_roi(period: str = "all_time") -> dict:
         }
 
     # Span the usage actually covers, so a two-day burst isn't priced as a
-    # full month of subscription — that would flatter the ratio dishonestly.
+    # full month of subscription, that would flatter the ratio dishonestly.
     stamps = sorted(_parse_ts(e.timestamp) for e in events)
     span_days = max((stamps[-1] - stamps[0]).total_seconds() / 86400, 1 / 24)
     months = max(span_days / 30.0, 1 / 30.0)  # never bill less than one day
@@ -226,7 +226,7 @@ def subscription_roi(period: str = "all_time") -> dict:
         "roi_multiple": round(value / paid, 1) if paid else None,
         "note": (
             "list_price_value_usd is what these tokens would have cost through the "
-            "metered API. No per-token charge occurred — this is value delivered, "
+            "metered API. No per-token charge occurred, this is value delivered, "
             "not money spent."
         ),
     }

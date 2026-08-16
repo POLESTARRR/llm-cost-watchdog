@@ -87,14 +87,16 @@ LONG_CONTEXT_MODELS = ("gpt-5.6",)
 # pricing error this project has shipped. Two bugs lived here:
 #
 #   1. `claude` was missing from CACHE_WRITE_BILLED_MODELS entirely, so every
-#      Anthropic cache write billed at a flat 1.0x — no premium at all.
+#      Anthropic cache write billed at a flat 1.0x, no premium at all.
 #   2. There was one multiplier (1.25x, the 5-minute rate), while the real
 #      Claude Code traffic this project imports is 100% *1-hour* ephemeral
 #      writes, which bill at 2.0x.
 #
-# Together those understated this repo's own imported build cost by 14.2%
-# ($12.62 on $88.89). Verified against the transcripts: every sampled turn
-# reports `cache_creation.ephemeral_1h_input_tokens` with a zero 5m field.
+# Together those understated this repo's own imported build cost by 17.0%
+# ($116.40 on what would have read as $683.93). Verified against the
+# transcripts at full scale: 26,746,714 cache-write tokens across 4,186 turns,
+# 100% of them carrying `cache_creation.ephemeral_1h_input_tokens` with a zero
+# 5m field. Not a majority, all of them.
 CACHE_WRITE_MULTIPLIER_5M = 1.25
 CACHE_WRITE_MULTIPLIER_1H = 2.0
 CACHE_WRITE_BILLED_MODELS = ("gpt-5.6", "claude")

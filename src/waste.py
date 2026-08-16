@@ -126,7 +126,7 @@ def find_duplicate_calls(
     The cheapest token is the one you don't send. A prompt repeated verbatim
     is either a missing local cache or a loop re-asking the same question.
 
-    Grouped by `prompt_hash` — a SHA-256 of the whole prompt — wherever a row
+    Grouped by `prompt_hash`, a SHA-256 of the whole prompt, wherever a row
     has one, falling back to the 80-character preview only for rows predating
     the column. That fallback is the *known false positive* this project
     documented against civil-prep: 22 genuinely different questions shared a

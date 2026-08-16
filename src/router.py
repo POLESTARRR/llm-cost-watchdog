@@ -5,12 +5,12 @@ Model-group routing driven by this project's own recorded traffic.
 429. That is failover, not routing: the fallback order is a hardcoded list and
 nothing remembers that a provider was rate-limited thirty seconds ago.
 
-This adds the missing half — model *groups*, cooldowns, and a routing strategy
-— but the strategy is the point, not the mechanism. A router that picks the
+This adds the missing half, model *groups*, cooldowns, and a routing strategy
+but the strategy is the point, not the mechanism. A router that picks the
 cheapest deployment from a published price list is a solved problem (LiteLLM's
 Router does it, among others). What that router cannot do is answer "which
 model actually served my traffic fastest, at what real cost, with what failure
-rate" — because it has no memory. This one reads the same SQLite ledger every
+rate", because it has no memory. This one reads the same SQLite ledger every
 other part of this project reads, so a routing decision is made from measured
 history and can be audited against it afterwards.
 
@@ -23,7 +23,7 @@ history and can be audited against it afterwards.
 
 The honest limits, stated up front: this is a single-process, single-user
 router. There is no Redis, no cross-process coordination, no per-deployment
-TPM/RPM accounting, and no concurrency control — those matter for a shared
+TPM/RPM accounting, and no concurrency control, those matter for a shared
 gateway serving many callers and are deliberately absent here. Cooldown state
 lives in SQLite so it survives a restart, which is as far as a personal tool
 needs to go.
@@ -92,7 +92,7 @@ def model_groups() -> dict[str, list[str]]:
     """Groups declared as WATCHDOG_GROUP_<NAME>=model,model,model.
 
     Read from the environment at call time rather than import time so a test or
-    a running process can change them without a restart — the same reason
+    a running process can change them without a restart, the same reason
     tracker.resolve_db_path() resolves late.
     """
     groups: dict[str, list[str]] = {}
@@ -303,7 +303,7 @@ def _rank(
         return pick, f"cheapest for {in_tokens or 1000}/{out_tokens} tokens (${priced[pick]:.6f})"
 
     # History-based strategies fall back to price when there isn't enough
-    # measured traffic to be worth trusting — an unmeasured model is not
+    # measured traffic to be worth trusting, an unmeasured model is not
     # thereby the best one.
     measured = {
         m: stats[m] for m in candidates
@@ -344,7 +344,7 @@ def simulate_routing(
 
     Every call in the period is re-priced on whichever group member the
     strategy would have chosen, using that call's real token counts. The
-    result is a bound, not a promise — it assumes the alternative model would
+    result is a bound, not a promise, it assumes the alternative model would
     have produced a comparable response, which is exactly the assumption a
     human should be making the decision about.
     """
@@ -382,7 +382,7 @@ def simulate_routing(
         "verdict": "cheaper" if delta > 0 else ("same" if abs(delta) < 1e-9 else "more expensive"),
         "caveat": (
             "Re-prices real token counts on the model the policy would have picked. "
-            "Assumes comparable output quality — it prices the switch, it does not judge it."
+            "Assumes comparable output quality, it prices the switch, it does not judge it."
         ),
     }
 

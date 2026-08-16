@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 # `subscription` exists because conflating it with `manual` was a lie this
 # project told about its own headline number. Claude Code build usage on a Pro
 # plan is real work at real token counts, but **no per-token charge occurred**
-# — the cost figure is list-price-equivalent *value*, not money that left an
+#, the cost figure is list-price-equivalent *value*, not money that left an
 # account. Reporting it as billed spend would be exactly the "confident
 # fiction" this provenance system exists to prevent. See tracker.BILLED_SOURCES.
 Source = Literal["live", "demo", "manual", "subscription"]
@@ -53,7 +53,7 @@ class UsageEvent(BaseModel):
     latency_ms: float
     prompt_preview: str = ""
     # SHA-256 of the full prompt. The 80-char `prompt_preview` cannot tell two
-    # calls apart when they share a long fixed instruction template — a real
+    # calls apart when they share a long fixed instruction template, a real
     # false-positive this project hit on civil-prep's duplicate detection. The
     # hash identifies a repeated prompt exactly without ever storing one.
     prompt_hash: str | None = None

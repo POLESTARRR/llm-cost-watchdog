@@ -163,7 +163,7 @@ def call_llm(
         # state that makes repeated routing better than repeated guessing.
         _bench(model)
 
-        # Within a group, the rest of the group is the natural fallback set —
+        # Within a group, the rest of the group is the natural fallback set,
         # the caller already declared those models interchangeable. Outside
         # one, fall back to the cross-provider defaults.
         if group_members:

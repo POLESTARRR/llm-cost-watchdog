@@ -9,7 +9,7 @@ surrendering the table.
 **The public map is a second opinion, not a source of truth.** LiteLLM
 publishes a community-maintained `model_prices_and_context_window.json` used by
 its router for cost-based routing. It is broad and current, but it does not
-model the two rules this project exists to get right — the GPT-5.6 long-context
+model the two rules this project exists to get right, the GPT-5.6 long-context
 surcharge, and the 5-minute vs 1-hour cache-write TTL split that was
 understating this repo's own build cost by 17%. So this never overwrites a
 local rate. It reports disagreement and leaves the decision to a human, which
@@ -137,7 +137,7 @@ def check_drift(refresh: bool = False) -> dict:
 def context_windows(refresh: bool = False) -> dict[str, int]:
     """Max input tokens per model, from the public map.
 
-    This project's own table has no context-window column — it prices calls, it
+    This project's own table has no context-window column, it prices calls, it
     doesn't size them. The router uses this for its pre-call check, so a prompt
     that cannot fit is never dispatched (and, on GPT-5.6, so traffic can be
     steered away from the 272K long-context surcharge before it is incurred).

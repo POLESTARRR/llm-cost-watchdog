@@ -92,13 +92,13 @@ BILLED_SOURCES = "live,manual"
 
 # Every row that represents real token consumption at real published rates,
 # whether or not it was metered. This is the honest denominator for "what did
-# this work cost to produce" — it just isn't a claim about your bank balance.
+# this work cost to produce", it just isn't a claim about your bank balance.
 LIST_PRICE_SOURCES = "live,manual,subscription"
 
 # The subset of billed rows that represents an ongoing *run rate*: calls this
 # wrapper made and measured itself. `manual` rows are real money too, but they
 # are backfilled after the fact from an existing record (a Claude Code
-# transcript), so they are history, not a rate — importing five build
+# transcript), so they are history, not a rate, importing five build
 # transcripts in one afternoon says nothing about what next week will cost.
 #
 # Anything that compares spend to a *weekly budget*, or extrapolates a burn
@@ -211,7 +211,7 @@ def _insert_params(event: UsageEvent) -> tuple:
     """Column values for _INSERT_SQL, in order.
 
     Shared by log_usage and log_usage_many so the column list can only ever be
-    wrong in one place — adding a column to one writer and not the other was
+    wrong in one place, adding a column to one writer and not the other was
     the obvious failure mode of the previous duplicated version.
     """
     return (
@@ -367,7 +367,7 @@ def source_totals(period: str = "all_time", db_path: str | None = None) -> dict:
         # Real tokens under a flat-fee plan: list-price value, not money spent.
         "subscription_cost_usd": subscription,
         "has_subscription_data": calls.get("subscription", 0) > 0,
-        # Everything real, priced at list — billed + subscription. The honest
+        # Everything real, priced at list, billed + subscription. The honest
         # answer to "what did this work cost to produce".
         "list_price_cost_usd": round(billed + subscription, 6),
         "demo_cost_usd": round(cost.get("demo", 0.0), 6),

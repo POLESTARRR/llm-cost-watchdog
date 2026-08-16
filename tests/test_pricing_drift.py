@@ -1,7 +1,7 @@
 """Pricing drift: reconciling the local table against a public price map.
 
 The tool must never rewrite a rate, and must never fail a caller when the
-network is unavailable — a reporting nicety that can break cost calculation
+network is unavailable, a reporting nicety that can break cost calculation
 would be a bad trade.
 """
 

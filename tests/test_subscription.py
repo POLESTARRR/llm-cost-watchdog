@@ -50,7 +50,7 @@ def test_source_totals_separates_value_from_billed_spend(temp_db):
 
 def test_budget_ignores_subscription_rows(temp_db):
     """A weekly budget describes metered money. Flat-fee usage cannot exhaust
-    it — otherwise importing a build transcript would report you over budget
+    it, otherwise importing a build transcript would report you over budget
     on spend that was never charged."""
     log_usage(_sub_event(cost=9999.0), db_path=temp_db)
     assert check_budget_status("weekly")["spend_usd"] == 0.0
@@ -207,7 +207,7 @@ def test_importer_derives_latency_from_timestamps(tmp_path, temp_db):
 
 
 def test_importer_discards_implausible_idle_gaps(tmp_path, temp_db):
-    """An overnight gap is idle time, not latency — recording it would wreck
+    """An overnight gap is idle time, not latency, recording it would wreck
     the anomaly detector's rolling averages."""
     from scripts.import_claude_code_usage import load
     from src.tracker import get_events

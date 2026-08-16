@@ -24,7 +24,7 @@ disk today, and must not be "fixed" by pointing it at current paths.
 PORTFOLIO` held Saans, LastKilometre, Tollgate and FlatmatePlan at once, so its
 single transcript interleaves all four and cannot be imported under one tag.
 Those turns are attributed individually by the absolute file paths appearing in
-each turn's tool calls — see `_attribute()`.
+each turn's tool calls, see `_attribute()`.
 """
 import argparse
 import json
@@ -71,7 +71,7 @@ MIXED_PROJECTS: dict[str, dict[str, str]] = {
 EXCLUDED_FRAGMENTS = ("/Tollgate", "/FlatmatePlan")
 
 # The Saans work begins at this user prompt, ~14 minutes before a `Saans/`
-# folder exists on disk — so path attribution alone cannot see it. After this
+# folder exists on disk, so path attribution alone cannot see it. After this
 # instant Saans is the only project in that transcript. Timestamps are only
 # safe to use here because this one boundary was verified by hand; everything
 # else is attributed by path, since Tollgate and LastKilometre overlap in time.
@@ -114,7 +114,7 @@ def _attribute(transcript: Path, fragments: dict[str, str]) -> dict[str, set]:
             blobs = " ".join(_tool_paths(d))
 
             if any(frag in blobs for frag in EXCLUDED_FRAGMENTS):
-                current = None  # excluded project — attribute nothing
+                current = None  # excluded project, attribute nothing
             else:
                 for frag, tag in fragments.items():
                     if frag in blobs:
