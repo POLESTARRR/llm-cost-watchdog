@@ -11,10 +11,14 @@ from src.analyzer import compute_report
 from src.analyzer import flag_anomalies as _flag_anomalies
 from src.analyzer import project_burn_rate as _project_burn_rate
 from src.analyzer import provider_breakdown as _provider_breakdown
+from src.analyzer import subscription_roi as _subscription_roi
 from src.analyzer import what_if_switched as _what_if_switched
 from src.guard import guard_status as _guard_status
 from src.pricing import PRICING_TABLE, compare_models
+from src.pricing_drift import check_drift as _check_drift
 from src.providers import configured_providers, infer_provider
+from src.router import router_status as _router_status
+from src.router import simulate_routing as _simulate_routing
 from src.waste import find_waste as _find_waste
 from src.tracker import VALID_SOURCES, log_usage
 from src.tracker import source_totals as _source_totals
@@ -28,8 +32,11 @@ server = MCPServer(
         "budget and burn rate, surface anomalous calls, compare model pricing, "
         "and log calls made outside the tracked wrapper. Every row carries a "
         "provenance ('live' = a real billed API call, 'demo' = seeded sample "
-        "data, 'manual' = hand-entered), use get_data_provenance before "
-        "quoting a total as real money."
+        "data, 'manual' = hand-entered, 'subscription' = real tokens covered by "
+        "a flat-fee plan rather than metered billing), use get_data_provenance "
+        "before quoting a total as real money, and prefer get_subscription_roi "
+        "when the usage came from a Claude Pro/Max plan, because no per-token "
+        "charge occurred for those rows."
     ),
 )
 
@@ -220,6 +227,62 @@ def log_manual_entry(
     )
     log_usage(event)
     return f"✓ logged as source=manual | {model} ${cost_usd:.6f} project={project_tag}"
+
+
+@server.tool(
+    description="What a flat-fee Claude Pro/Max subscription returned in list-price API "
+                "value. Use this instead of get_cost_report when asked 'what did my "
+                "subscription get me' or 'was it worth it'. Returns the list-price value of "
+                "tokens consumed, the subscription cost for the span they cover, and the "
+                "ratio. Critically: no per-token charge occurred for these rows, so this is "
+                "value delivered, not money spent — never describe it as billed spend."
+)
+def get_subscription_roi(period: str = "all_time") -> dict:
+    if period not in _VALID_PERIODS:
+        return _bad_period(period)
+    return _subscription_roi(period)
+
+
+@server.tool(
+    description="Show the router's current configuration: declared model groups, the active "
+                "routing strategy, which models are cooling down after a rate limit and for "
+                "how long, and any group member missing from the pricing table. Read-only — "
+                "dispatches nothing."
+)
+def get_router_status() -> dict:
+    return _router_status()
+
+
+@server.tool(
+    description="Replay recorded traffic through a routing policy and re-price it, to answer "
+                "'what would this policy have cost?' without running it. group is a declared "
+                "model group; strategy is 'cheapest' | 'lowest-latency' | 'lowest-failure' | "
+                "'shuffle'. Re-prices each real call's actual token counts on whichever group "
+                "member the strategy would have picked. The result prices a switch, it does "
+                "not judge whether the alternative model's output would have been as good."
+)
+def simulate_routing(
+    group: str, strategy: str = "cheapest", period: str = "week", source: str | None = None
+) -> dict:
+    if period not in _VALID_PERIODS:
+        return _bad_period(period)
+    if (err := _check_source(source)) is not None:
+        return err
+    try:
+        return _simulate_routing(group, strategy, period=period, source=source)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@server.tool(
+    description="Check this project's hardcoded pricing table against LiteLLM's public, "
+                "community-maintained price map and report any rate that disagrees. Use when "
+                "asked whether the pricing is current or why a cost figure looks off. Reports "
+                "drift only — it never rewrites a rate, because silently re-pricing recorded "
+                "history is worse than a stale number. Set refresh=true to re-download."
+)
+def check_pricing_drift(refresh: bool = False) -> dict:
+    return _check_drift(refresh=refresh)
 
 
 if __name__ == "__main__":
