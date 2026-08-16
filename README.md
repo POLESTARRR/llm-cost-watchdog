@@ -50,7 +50,7 @@ This project models all of that. One wrapper function, `call_llm()`, records cos
             ┌───────────────────┼───────────────────┐
             ▼                   ▼                   ▼
      src/digest.py       src/mcp_server.py    dashboard/app.py
-   weekly agentic loop    12 tools, stdio      FastAPI + static HTML
+   weekly agentic loop    16 tools, stdio      FastAPI + static HTML
                           → Claude Desktop     → localhost:8000
 ```
 
@@ -227,6 +227,76 @@ Both the failure and the eventual success are logged, so the fallback shows up
 in your cost history rather than hiding. Only rate limits trigger it; a 400
 fails identically everywhere, so retrying elsewhere just burns another call.
 
+### Routing — choosing the model from recorded history
+
+Failover reacts to a failure. Routing decides *before* the call, and this one
+decides from the ledger.
+
+```bash
+WATCHDOG_GROUP_FAST=gemini-flash-lite-latest,claude-haiku-4-5,gpt-5-nano
+WATCHDOG_GROUP_SMART=claude-opus-5,gpt-5.6-sol
+WATCHDOG_ROUTING_STRATEGY=cheapest    # cheapest | lowest-latency | lowest-failure | shuffle
+```
+
+```python
+call_llm(prompt, model_group="fast", project_tag="my-app")
+```
+
+Four strategies. `cheapest` prices the call on each member. The other three —
+`lowest-latency`, `lowest-failure`, `shuffle` — read `src/router.py`'s
+`model_stats()`, computed from **calls that actually happened**: measured
+latency, measured failure rate, measured cost per call.
+
+That is the whole argument for this existing at all. A generic router picks the
+cheapest deployment from a published price list; every router does that.
+Picking the model that *actually served your traffic fastest last week* needs a
+ledger, and this project already had one.
+
+Three details that matter more than the strategy list:
+
+- **Hard constraints filter before the strategy ranks.** Provider not
+  configured, model cooling down, prompt larger than the model's context
+  window — all removed first. A preference is never a reason to dispatch a call
+  that cannot succeed. Context windows come from the public price map (this
+  project's own table prices calls, it doesn't size them); a model with no
+  known window is left alone rather than guessed at.
+- **Unmeasured is not the same as good.** A model needs `MIN_CALLS_FOR_HISTORY`
+  recorded calls before its history is trusted, and a history strategy with
+  nothing to go on falls back to price and says so. One lucky call must not
+  decide routing for everything after it. Failed calls are excluded from
+  measured latency for the same reason the anomaly detector excludes them — a
+  429 logs near-zero latency, and counting it would make a failing model look
+  like the fastest one.
+- **Cooldowns persist.** A 429 benches that model in SQLite, not in memory: a
+  rate limit a restart forgets is a rate limit you hit again immediately.
+
+Every decision records *why* — chosen model, strategy, candidates considered,
+what was excluded and for what reason — so a routing choice can be audited
+against the same history that informed it.
+
+**`simulate_routing` is the part nothing else can do.** Replay real recorded
+traffic through a policy and re-price it, before adopting it:
+
+```
+simulate_routing(group="fast", strategy="cheapest", period="week")
+→ {"calls_repriced": 412, "actual_cost_usd": 6.41,
+   "simulated_cost_usd": 1.83, "savings_percent": 71.4,
+   "routed_to": {"gpt-5-nano": 412}, "verdict": "cheaper"}
+```
+
+It re-prices each call's *real* token counts on whichever member the strategy
+would have picked. It prices a switch; it does not judge one — the assumption
+that the cheaper model's output would have been good enough is exactly the
+judgment a human should be making, and the tool says so in its own `caveat`
+field rather than burying it here.
+
+**What this deliberately is not.** Single process, single user. No Redis, no
+proxy server, no per-deployment TPM/RPM accounting, no concurrency control.
+Those matter for a shared gateway serving many callers; LiteLLM's Router
+already does them well, and reimplementing them badly here would trade the one
+thing this project has — the ledger — for a worse copy of something that
+exists.
+
 ---
 
 ## 7. Finding waste
@@ -272,8 +342,12 @@ spend and reported with per-category detail alongside.
 | `check_guard_status` | none | Guard mode, budget headroom, call-rate vs. the circuit breaker, per-project caps |
 | `list_providers` | none | Which providers have credentials; which models are priced |
 | `log_manual_entry` | `model`, `cost_usd`, `tokens`, `project_tag`, `note` | Confirmation; the row is recorded with `source=manual` |
+| `get_subscription_roi` | `period` | List-price value of flat-fee usage, the subscription cost for the span it covers, and the ratio. Never describes it as billed spend |
+| `get_router_status` | none | Declared model groups, active strategy, models cooling down and for how long, group members missing from the pricing table |
+| `simulate_routing` | `group`, `strategy`, `period`, `source?` | Replays real traffic through a routing policy and re-prices it. Prices a switch; does not judge it |
+| `check_pricing_drift` | `refresh` | Every local rate that disagrees with the public price map. Reports drift, never rewrites a rate |
 
-`source` accepts `live`, `demo`, `manual`, any comma-separated combination (`live,manual`), or `all`. Omitting it includes everything, but the report still returns `breakdown_by_source`, so a total inflated by seeded data can never present itself as billed spend.
+`source` accepts `live`, `demo`, `manual`, `subscription`, any comma-separated combination (`live,manual`), or `all`. Omitting it includes everything — but the report still returns `breakdown_by_source`, so a total inflated by seeded data can never present itself as billed spend.
 
 Example exchanges in Claude Desktop:
 
@@ -395,10 +469,12 @@ prompts." They aren't, they're 22 *different* questions and answers. The
 (see `src/waste.py`'s `_MIN_PREVIEW_FOR_DUPLICATE`), and civil-prep's prompts
 open with a long fixed instruction template before the part that actually
 varies per call. Against a system with static, template-heavy prompts, an
-80-char preview isn't enough to tell two calls apart, a real limitation this
-run surfaced, not a bug it hid. The fix (hash the full prompt instead of
-previewing it) is straightforward but wasn't in the original spec; flagging it
-here rather than quietly working around it.
+80-char preview isn't enough to tell two calls apart — a real limitation this
+run surfaced, not a bug it hid. The fix — hash the full prompt instead of previewing it — is now implemented:
+every row carries a `prompt_hash` (SHA-256, never the text), duplicate
+detection groups on it, and each finding reports `matched_on: "hash" | "preview"`
+so a preview-matched row from before the column existed can be read with the
+appropriate suspicion.
 
 **A second real, useful finding from the full run:** every one of the 44 judge
 calls (22 faithfulness + 22 relevance) scored a perfect 1.00. Across 22 varied
@@ -501,16 +577,58 @@ python scripts/import_claude_code_usage.py \
     --project-tag my-project-build
 ```
 
-Run against the two sessions that actually built these two projects:
+`scripts/import_all_projects.py` runs this across every tracked project in one
+pass — the mapping from transcript folder to project tag lives in that file, so
+adding a new project is a one-line edit rather than a remembered command.
 
-| Project | Real Claude Code turns | Tokens | Cost |
+| Project | Turns | Tokens | List-price value |
 |---|--:|--:|--:|
-| `llm-cost-watchdog-build` (this repo) | 512 | 153,682,543 | $90.2029 |
-| `civil-prep-build` (the separate session that built civil-prep) | 417 | 89,582,158 | $40.2268 |
-| **Total build cost** | **929** | **243,264,701** | **$130.4298** |
+| `p2-jsw` | 974 | 295,518,870 | $165.58 |
+| `scalp-log` | 346 | 132,020,815 | $117.01 |
+| `last-kilometre` | 488 | 136,024,281 | $109.36 |
+| `ibs` | 275 | 97,090,581 | $81.18 |
+| `brainstorm` | 251 | 86,761,551 | $70.28 |
+| `gtm` | 402 | 84,190,432 | $64.14 |
+| `umbra` | 275 | 57,635,295 | $48.65 |
+| `civil-prep` | 417 | 89,582,158 | $48.29 |
+| `llm-cost-watchdog` (this repo) | 155 | 34,741,474 | $30.71 |
+| `prahar` | 193 | 31,599,518 | $22.28 |
+| `saans` | 51 | 33,653,826 | $21.38 |
+| `clip2cart` | 201 | 31,017,243 | $14.21 |
+| `p1-ura` | 158 | 15,109,021 | $7.26 |
+| **Total** | **4,186** | **1,124,945,065** | **$800.33** |
 
-That dwarfs the $0.0046 these two projects have cost to *run*, **by a factor
-of about 28,000**. Both numbers are real; they answer different questions.
+### That column says "value", not "cost", and the distinction is the point
+
+These sessions ran on a **Claude Pro subscription**. The tokens are real, the
+work is real, and the rate they are priced at is the real published API rate —
+but **no per-token charge ever occurred**. Calling $800.33 "money spent" would
+overstate actual spend by the entire table, which is precisely the "confident
+fiction" [§8a](#8a-provenance--is-this-number-real) exists to prevent.
+
+So these rows carry a fourth provenance, `subscription`, and it is deliberately
+**excluded from `BILLED_SOURCES`**. `check_budget_status()` and the guardrails
+ignore it — a flat fee cannot exhaust a metered budget, and a guardrail cannot
+un-spend it. `get_data_provenance` reports `billed_cost_usd: 0.0` alongside
+`list_price_cost_usd: 800.33`, and both figures are true.
+
+The ratio is the interesting number, and it needs no exaggeration:
+
+```bash
+python -c "from src.analyzer import subscription_roi; print(subscription_roi())"
+```
+
+> **$800.33 of list-price API value, over an 11.3-day span, against $7.55 of
+> subscription time — a 106× multiple.**
+
+The denominator is prorated to the span the usage actually covers rather than a
+full month, because charging a two-day burst a full month's fee would flatter
+the ratio dishonestly. Tune it with `WATCHDOG_SUBSCRIPTION_USD_PER_MONTH`.
+
+Against the ~$0.0046 these projects cost to *run*, build cost still dwarfs
+runtime by roughly five orders of magnitude. Both numbers are real; they answer
+different questions — and now the middle number, what was actually charged, is
+reported separately from both.
 Building an app with an agentic coding tool costs vastly more than running
 the finished app, because building means many long turns re-sending a large,
 growing context (this is also why 97% of the Anthropic spend above is
@@ -645,7 +763,7 @@ anywhere; deploying it is opt-in, not required.
 
 ## 11. Eval results
 
-`pytest tests/ -q` → **220 passed**.
+`pytest tests/ -q` → **347 passed**.
 
 | Suite | Tests | Covers |
 |---|---:|---|
@@ -691,9 +809,60 @@ It is agentic in an honest, narrow sense: it makes a judgment call every week, w
 
 **Fallback behavior:** if the LLM call fails, the digest does **not** abort. It writes a deterministic plain-text summary and records `"llm_written": false`. A scheduled job that loses its whole run to a transient 429 is a broken job.
 
-### Postmortem
+### Postmortem: the tracker was under-reporting its own cost by 17%
 
-*Pending.* Reserved for a real incident, what the watchdog caught on live traffic, what was actually happening, and what changed as a result. It will not be filled with a hypothetical.
+Not a hypothetical, and not a flattering one — the bug was in this project's
+pricing engine, and it made every number this repo has ever published too
+small.
+
+**Symptom.** A review of `src/pricing.py` against a real Claude Code transcript
+showed cache-write tokens being priced at the plain input rate.
+
+**Root cause — two bugs stacked.**
+
+1. `CACHE_WRITE_BILLED_MODELS = ("gpt-5.6",)`. Anthropic models were never in
+   that tuple, so `bills_cache_writes("claude-opus-5")` returned `False` and
+   every Claude cache write billed at **1.0×** input — no premium at all. The
+   test suite asserted this was correct
+   (`test_cache_writes_not_surcharged_on_models_without_the_rule`), so the bug
+   was pinned in place by a passing test.
+2. There was a single `CACHE_WRITE_MULTIPLIER = 1.25`, which is the
+   **5-minute** ephemeral rate. Claude Code caches with a **1-hour** TTL, which
+   bills at **2.0×**.
+
+**Evidence.** Every assistant turn in a Claude Code transcript carries the
+split explicitly, and it is unambiguous:
+
+```json
+"cache_creation": {"ephemeral_1h_input_tokens": 10443, "ephemeral_5m_input_tokens": 0}
+```
+
+Across all 4,186 imported turns: **26,746,714 cache-write tokens, 100% of them
+1-hour.** Not a majority — all of them.
+
+**Impact.** Cache writes were priced at $116.40 and should have been $232.80.
+The corrected corpus totals **$800.33**; under the old engine it read
+**$683.93**. A **17.0% understatement**, on the single largest figure this
+project reports.
+
+**Fix.** Split the multiplier by TTL (`CACHE_WRITE_MULTIPLIER_5M` / `_1H`), add
+`claude` to the billed-models tuple, thread a `cache_write_1h_tokens` subset
+through `calculate_cost()` and the schema, and read the real split from the
+transcript in the importer. The test that asserted the wrong behaviour was
+rewritten into two regression tests that assert the right one.
+
+**What this changes about how the project is built.** A hand-verified pricing
+table is a liability that looks like an asset — it is confidently wrong and
+nothing contradicts it. `src/pricing_drift.py` now reconciles every rate
+against a public, community-maintained price map and reports disagreement
+without ever rewriting a rate. It earned its place on its first run by catching
+a second, unrelated error: the Sonnet 5 entry misses the **introductory
+pricing** ($2/$10 per MTok, active through 2026-08-31) and is over-priced
+against it today.
+
+**The honest caveat.** The 1h/5m split is now read from the data, but the
+project still has no automatic date-ranged pricing, so introductory and
+promotional rates are not modelled — see Known gaps.
 
 ---
 
@@ -701,8 +870,9 @@ It is agentic in an honest, narrow sense: it makes a judgment call every week, w
 
 Stated plainly rather than hidden:
 
-- **Pricing is a snapshot.** Rates were verified against provider pricing pages in August 2026 and are hardcoded. There is no automatic refresh; when a vendor changes prices, `src/pricing.py` needs an edit. `python -m src.pricing` prints the whole table for review.
-- **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo, because no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
-- **The shipped DB mixes one fake project with real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, ~$19.4, never billed, scaled up from an earlier ~$0.20 revision purely so it isn't dwarfed to invisibility next to real numbers 1000x its size; the labeling, badges, and filtering are unchanged, and it's still openly fake). `llm-cost-watchdog-build` / `civil-prep-build` are real *build-time* Claude Code usage imported from local session transcripts (`source=manual`, ~$130 combined, see [§8d](#8d-what-it-actually-cost-to-build-these-projects-with-claude-code)). The small real *runtime* rows from [§8b](#8b-real-integration-tracking-civil-prep)/[§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project) (`civil-prep` / `cost-watchdog-self`, `source=live`, a few thousandths of a dollar) were removed from the shipped DB, several orders of magnitude smaller than build cost, so they cluttered the Cost-by-Project view without changing the conclusion. The methodology and code are unchanged and reproducible; §8b/§8c describe what actually happened when they ran; they just aren't sitting in the current snapshot. Run `python -m src.tracker --provenance` for the live numbers, and `--purge demo` to drop the fake project entirely.
+- **Pricing is a snapshot, now with a second opinion.** Rates are still hardcoded and still need an edit when a vendor moves them, but `python -m src.pricing_drift` reconciles every mapped rate against a public, community-maintained price map and reports disagreement. It never rewrites a rate — silently re-pricing recorded history is worse than a stale number.
+- **No date-ranged pricing.** The table holds one rate per model, so introductory and promotional pricing is not modelled. The drift checker currently flags Sonnet 5 for exactly this reason: the table carries $3/$15 per MTok while the introductory $2/$10 is in effect through 2026-08-31, so Sonnet-5 traffic in that window is over-priced here. Fixing it properly means date-ranged rates, which is a real change rather than a table edit.
+- **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo — no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
+- **The shipped DB mixes one fake project with real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, ~$19.4, never billed — scaled up from an earlier ~$0.20 revision purely so it isn't dwarfed to invisibility next to real numbers 1000x its size; the labeling, badges, and filtering are unchanged, it's still openly fake). `llm-cost-watchdog-build` / `civil-prep-build` are real *build-time* Claude Code usage imported from local session transcripts (`source=manual`, ~$130 combined — see [§8d](#8d-what-it-actually-cost-to-build-these-projects-with-claude-code)). The small real *runtime* rows from [§8b](#8b-real-integration-tracking-civil-prep)/[§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project) (`civil-prep` / `cost-watchdog-self`, `source=live`, a few thousandths of a dollar) were removed from the shipped DB — several orders of magnitude smaller than build cost, they cluttered the Cost-by-Project view without changing the conclusion. The methodology and code are unchanged and reproducible; §8b/§8c describe what actually happened when they ran, they just aren't sitting in the current snapshot. Run `python -m src.tracker --provenance` for the live numbers, and `--purge demo` to drop the fake project entirely.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
 - **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate, which is why every projection carries a `confidence` field.

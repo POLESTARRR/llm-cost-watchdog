@@ -39,6 +39,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -62,6 +63,13 @@ MODEL_MAP = {
 }
 
 
+# A derived latency above this is not a measurement of anything — it means the
+# session was idle (laptop closed, user away) between the prompt and the reply.
+# Dropped to 0.0 ("not measured") rather than recorded, because a 4-hour
+# "latency" would wreck the anomaly detector's rolling averages.
+_MAX_PLAUSIBLE_LATENCY_S = 600.0
+
+
 def _preview(msg: dict) -> str:
     for block in msg.get("content", []) or []:
         if block.get("type") == "text" and block.get("text", "").strip():
@@ -71,13 +79,73 @@ def _preview(msg: dict) -> str:
     return "[no text content]"
 
 
-def _checkpoint_path(transcript_path: str) -> Path:
+def _parse_ts(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _derive_latency_ms(prev_ts: str | None, turn_ts: str | None) -> float:
+    """Wall-clock between the prompt being sent and the reply being recorded.
+
+    The transcript has no explicit per-turn latency field, but every record is
+    timestamped. The gap from the preceding record (the user message, or the
+    tool result that unblocked the model) to this assistant turn is the time
+    the request actually took — it excludes user think time, because a user
+    message is stamped when it is *sent*, not when it was started.
+
+    This is a derived figure and labelled as one. It is an upper bound: it
+    includes client-side overhead alongside real API latency. Returns 0.0 —
+    the project's existing "not measured" value — when it cannot be derived
+    or is implausibly large.
+    """
+    a, b = _parse_ts(prev_ts), _parse_ts(turn_ts)
+    if a is None or b is None:
+        return 0.0
+    seconds = (b - a).total_seconds()
+    if seconds <= 0 or seconds > _MAX_PLAUSIBLE_LATENCY_S:
+        return 0.0
+    return round(seconds * 1000, 2)
+
+
+def _prompt_text(record: dict) -> str:
+    """Flatten a user/tool-result record into the text the model was given.
+
+    Used only to hash — never stored. Lets duplicate detection compare whole
+    prompts instead of an 80-character preview, which could not tell two calls
+    apart when they shared a long fixed instruction template.
+    """
+    msg = record.get("message") or {}
+    content = msg.get("content")
+    if isinstance(content, str):
+        return content
+    parts: list[str] = []
+    for block in content or []:
+        if not isinstance(block, dict):
+            parts.append(str(block))
+            continue
+        if block.get("type") == "text":
+            parts.append(block.get("text", ""))
+        elif block.get("type") == "tool_result":
+            inner = block.get("content")
+            parts.append(inner if isinstance(inner, str) else json.dumps(inner, sort_keys=True))
+    return "\n".join(p for p in parts if p)
+
+
+def _checkpoint_path(transcript_path: str, project_tag: str) -> Path:
     """Where we remember which message ids from this transcript are already
     logged, so re-running on a transcript that's grown (the session
     continued) only imports the new turns instead of re-logging everything.
+
+    Keyed by project tag as well as transcript: one working directory can hold
+    several projects, and a single shared checkpoint would let the first
+    project's import mark the other projects' turns as already-done.
     """
     p = Path(transcript_path)
-    return p.parent / f".{p.stem}.imported.json"
+    return p.parent / f".{p.stem}.{project_tag}.imported.json"
 
 
 def _push_remote(events: list[dict], remote_url: str, import_key: str) -> dict:
@@ -108,8 +176,16 @@ def load(
     db_path: str | None = None,
     remote_url: str | None = None,
     import_key: str | None = None,
+    source: str = "subscription",
+    only_message_ids: set[str] | None = None,
 ) -> dict:
-    checkpoint = _checkpoint_path(path)
+    """Import one transcript's assistant turns.
+
+    `only_message_ids`, when given, restricts the import to those API message
+    ids — used when one transcript interleaves several projects and each
+    project's turns have been attributed separately upstream.
+    """
+    checkpoint = _checkpoint_path(path, project_tag)
     seen_ids = set(json.loads(checkpoint.read_text())) if checkpoint.exists() else set()
     already_imported = len(seen_ids)
     new_ids: list[str] = []
@@ -120,7 +196,13 @@ def load(
     total_cost = 0.0
     total_tokens = 0
 
-    with open(path) as f:
+    # The record immediately before an assistant turn is the prompt that
+    # produced it — used for the derived latency and the prompt hash.
+    prev_ts: str | None = None
+    prev_hash: str | None = None
+    latency_derived = 0
+
+    with open(path, errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -129,25 +211,39 @@ def load(
                 d = json.loads(line)
             except json.JSONDecodeError:
                 continue
+
             if d.get("type") != "assistant":
+                # Remember the prompt side so the next assistant turn can be
+                # timed and hashed against it.
+                if d.get("type") == "user":
+                    prev_ts = d.get("timestamp") or prev_ts
+                    prev_hash = UsageEvent.make_hash(_prompt_text(d))
                 continue
 
             msg = d.get("message", {})
             mid = msg.get("id")
+            turn_ts = d.get("timestamp")
             if not mid or mid in seen_ids or mid in new_ids:
+                prev_ts = turn_ts or prev_ts
+                continue
+            if only_message_ids is not None and mid not in only_message_ids:
+                prev_ts = turn_ts or prev_ts
                 continue
 
             usage = msg.get("usage")
             model_raw = msg.get("model")
             if not usage or not model_raw:
+                prev_ts = turn_ts or prev_ts
                 continue
             if model_raw not in MODEL_MAP:
                 skipped_synthetic += 1
+                prev_ts = turn_ts or prev_ts
                 continue
 
             model = MODEL_MAP[model_raw]
             if model not in PRICING_TABLE:
                 skipped_no_price += 1
+                prev_ts = turn_ts or prev_ts
                 continue
 
             cache_read = usage.get("cache_read_input_tokens", 0) or 0
@@ -156,37 +252,44 @@ def load(
             output = usage.get("output_tokens", 0) or 0
             full_input = raw_input + cache_read + cache_write
 
-            cost = calculate_cost(model, full_input, output, cache_read, cache_write)
+            # The TTL split is what makes the cache-write premium correct:
+            # 1-hour writes bill at 2.0x input, 5-minute at 1.25x. Claude Code
+            # uses 1-hour caching almost exclusively, so pricing the whole
+            # figure at the 5-minute rate understated real cost by ~14%.
+            creation = usage.get("cache_creation") or {}
+            cache_write_1h = creation.get("ephemeral_1h_input_tokens", 0) or 0
+            # Trust the flat total as authoritative; the split is a subset of it.
+            cache_write_1h = min(cache_write_1h, cache_write)
+            tier = usage.get("service_tier") or "standard"
+
+            latency_ms = _derive_latency_ms(prev_ts, turn_ts)
+            if latency_ms:
+                latency_derived += 1
+
+            cost = calculate_cost(
+                model, full_input, output, cache_read, cache_write,
+                cache_write_1h_tokens=cache_write_1h, service_tier=tier,
+            )
             total_cost += cost
             total_tokens += full_input + output
             new_ids.append(mid)
 
+            row = {
+                "model": model, "provider": "anthropic", "project_tag": project_tag,
+                "input_tokens": full_input, "output_tokens": output,
+                "cached_input_tokens": cache_read, "cache_write_tokens": cache_write,
+                "cache_write_1h_tokens": cache_write_1h, "service_tier": tier,
+                "latency_ms": latency_ms, "prompt_preview": _preview(msg),
+                "prompt_hash": prev_hash, "success": True, "source": source,
+                "timestamp": turn_ts,
+            }
+
             if remote_url:
-                pending.append({
-                    "model": model, "provider": "anthropic", "project_tag": project_tag,
-                    "input_tokens": full_input, "output_tokens": output,
-                    "cached_input_tokens": cache_read, "cache_write_tokens": cache_write,
-                    "latency_ms": 0.0, "prompt_preview": _preview(msg),
-                    "success": True, "source": "manual", "timestamp": d.get("timestamp"),
-                })
+                pending.append(row)
             else:
-                event = UsageEvent(
-                    model=model,
-                    provider="anthropic",
-                    project_tag=project_tag,
-                    input_tokens=full_input,
-                    output_tokens=output,
-                    cached_input_tokens=cache_read,
-                    cache_write_tokens=cache_write,
-                    cost_usd=cost,
-                    latency_ms=0.0,  # not recorded per-turn in the transcript
-                    prompt_preview=_preview(msg),
-                    success=True,
-                    source="manual",
-                    timestamp=d.get("timestamp"),
-                )
-                log_usage(event, db_path=db_path)
+                log_usage(UsageEvent(cost_usd=cost, **row), db_path=db_path)
             logged += 1
+            prev_ts = turn_ts or prev_ts
 
     # Only commit the checkpoint after the write actually succeeds, a failed
     # remote push must leave these turns eligible for retry on the next run,
@@ -204,6 +307,7 @@ def load(
         "skipped_unknown_model": skipped_synthetic,
         "total_cost": round(total_cost, 6),
         "total_tokens": total_tokens,
+        "latency_derived": latency_derived,
     }
 
 
@@ -218,6 +322,13 @@ def _main() -> None:
     parser.add_argument("--import-key", default=None,
                          help="Value of WATCHDOG_IMPORT_KEY on the remote deployment. "
                               "Defaults to the WATCHDOG_IMPORT_KEY env var if not given.")
+    parser.add_argument("--source", default="subscription",
+                         choices=["subscription", "manual"],
+                         help="Provenance for the imported rows. Default 'subscription': "
+                              "Claude Code usage on a Pro/Max plan is real tokens covered "
+                              "by a flat fee, so it is list-price value rather than metered "
+                              "spend. Use 'manual' only if these turns were billed per token "
+                              "against an API key.")
     args = parser.parse_args()
 
     path = Path(args.session).expanduser()
@@ -229,10 +340,12 @@ def _main() -> None:
         parser.error("--remote-url requires --import-key (or a WATCHDOG_IMPORT_KEY env var)")
 
     stats = load(str(path), args.project_tag, db_path=args.db_path,
-                 remote_url=args.remote_url, import_key=import_key)
+                 remote_url=args.remote_url, import_key=import_key, source=args.source)
     sink = f"remote: {args.remote_url}" if args.remote_url else "local DB"
     print(f"[{sink}] logged={stats['logged']} new turns  tokens={stats['total_tokens']:,}  cost=${stats['total_cost']:.4f}"
           + (f"  ({stats['already_imported']} already imported, skipped)" if stats["already_imported"] else ""))
+    if stats["latency_derived"]:
+        print(f"  ({stats['latency_derived']} turns carry a latency derived from transcript timestamps)")
     if stats["skipped_no_price"]:
         print(f"  ({stats['skipped_no_price']} turns skipped: model not in PRICING_TABLE)")
     if stats["skipped_unknown_model"]:
