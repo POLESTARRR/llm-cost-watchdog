@@ -5,6 +5,10 @@ __pycache__/
 *.pyc
 data/usage.db
 data/reports/
+# Cached copy of LiteLLM's public price map, refetched on demand by
+# src/pricing_drift.py. ~1.7MB of third-party data with its own release
+# cadence — vendoring it would just go stale in the history.
+data/litellm_price_map.json
 .pytest_cache/
 *.egg-info/
 .DS_Store
