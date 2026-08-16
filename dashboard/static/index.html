@@ -246,7 +246,22 @@
       <div class="value" id="cache-saved">-</div>
       <div class="note" id="cache-note"></div>
     </div>
+    <div class="kpi">
+      <div class="label">Subscription return</div>
+      <div class="value" id="roi-multiple">-</div>
+      <div class="note" id="roi-note"></div>
+    </div>
   </div>
+
+  <section>
+    <h2>Routing</h2>
+    <div id="router-panel"></div>
+  </section>
+
+  <section>
+    <h2>Pricing drift</h2>
+    <div id="drift-panel"></div>
+  </section>
 
   <section>
     <h2>Cost by provider</h2>
@@ -420,20 +435,97 @@ function renderProvenance(p, sourceFilter) {
   el.innerHTML = "";
 }
 
+function renderRoi(roi) {
+  if (!roi || !roi.calls) {
+    $("roi-multiple").textContent = "n/a";
+    $("roi-note").textContent = "no flat-fee usage recorded";
+    return;
+  }
+  $("roi-multiple").textContent = `${roi.roi_multiple}x`;
+  $("roi-note").textContent =
+    `${usd2(roi.list_price_value_usd)} list-price value vs ` +
+    `${usd2(roi.subscription_cost_usd)} of plan over ${roi.span_days}d · not money spent`;
+}
+
+function renderRouter(r) {
+  const el = $("router-panel");
+  const groups = Object.entries(r.groups || {});
+  if (!groups.length) {
+    el.innerHTML =
+      `<p class="note">No model groups declared. Set ` +
+      `<code>WATCHDOG_GROUP_FAST=model,model</code> to enable routing, then call ` +
+      `<code>call_llm(prompt, model_group="fast")</code>. Strategy: <b>${r.strategy}</b>.</p>`;
+    return;
+  }
+  const cooling = Object.entries(r.cooldowns || {});
+  el.innerHTML =
+    `<p class="note">Strategy <b>${r.strategy}</b> · history window ${r.history_window_days}d</p>` +
+    groups
+      .map(([name, members]) => `<div><b>${name}</b>: ${members.join(", ")}</div>`)
+      .join("") +
+    (cooling.length
+      ? `<p class="note">Cooling down: ` +
+        cooling.map(([m, c]) => `${m} (${c.seconds_remaining}s, ${c.reason})`).join("; ") +
+        `</p>`
+      : `<p class="note">Nothing cooling down.</p>`) +
+    (r.unpriced_members && r.unpriced_members.length
+      ? `<p class="note">Not in the pricing table: ${r.unpriced_members.join(", ")}</p>`
+      : "");
+}
+
+function renderDrift(d) {
+  const el = $("drift-panel");
+  if (!d.checked) {
+    el.innerHTML = `<p class="note">Could not check: ${d.reason}</p>`;
+    return;
+  }
+  if (!d.drifted.length) {
+    el.innerHTML =
+      `<p class="note">${d.models_compared} rate(s) checked against the public price ` +
+      `map, no disagreement.</p>`;
+    return;
+  }
+  el.innerHTML =
+    `<p class="note">${d.drifted.length} model(s) disagree with the public price map. ` +
+    `Reported only, never auto-applied.</p>` +
+    d.drifted
+      .map(
+        (row) =>
+          `<div><b>${row.model}</b>` +
+          Object.entries(row.fields)
+            .map(
+              ([f, v]) =>
+                ` · ${f}: ours ${v.ours} vs theirs ${v.theirs}` +
+                ` (${v.ours < v.theirs ? "under" : "over"}-priced here)`
+            )
+            .join("") +
+          `</div>`
+      )
+      .join("");
+}
+
 async function load() {
   const period = $("period").value;
   const source = $("source").value;
   const q = `period=${period}&source=${encodeURIComponent(source)}`;
-  const [report, budget, burn, providers, anomalies, calls, waste, prov] = await Promise.all([
-    getJSON(`/report?${q}`),
-    getJSON(`/budget?source=${encodeURIComponent(source)}`),
-    getJSON(`/burn-rate?${q}`),
-    getJSON(`/providers?${q}`),
-    getJSON(`/anomalies?source=${encodeURIComponent(source)}`),
-    getJSON(`/calls?${q}&limit=30`),
-    getJSON(`/waste?${q}`),
-    getJSON(`/provenance?period=${period}`),
-  ]);
+  const [report, budget, burn, providers, anomalies, calls, waste, prov, roi, router, drift] =
+    await Promise.all([
+      getJSON(`/report?${q}`),
+      getJSON(`/budget?source=${encodeURIComponent(source)}`),
+      getJSON(`/burn-rate?${q}`),
+      getJSON(`/providers?${q}`),
+      getJSON(`/anomalies?source=${encodeURIComponent(source)}`),
+      getJSON(`/calls?${q}&limit=30`),
+      getJSON(`/waste?${q}`),
+      getJSON(`/provenance?period=${period}`),
+      getJSON(`/roi?period=${period}`),
+      getJSON(`/router`),
+      getJSON(`/pricing-drift`),
+    ]);
+
+  renderRoi(roi);
+  renderRouter(router);
+  renderDrift(drift);
 
   renderProvenance(prov, source);
 
@@ -445,8 +537,13 @@ async function load() {
   // Status is carried by an explicit word, not by color alone.
   $("budget-status").textContent = budget.status;
   $("budget-status").className = "value status-" + budget.status;
-  $("budget-note").textContent =
-    `${budget.percent_used}% of ${usd2(budget.limit_usd)} weekly · ${usd2(budget.remaining_usd)} left`;
+  // A budget over metered spend reads 0% whenever everything recorded was
+  // covered by a subscription. Saying only "0%" next to hundreds of dollars of
+  // activity reads as a broken widget, so surface the reason the API gives.
+  $("budget-note").textContent = budget.note
+    ? `${usd2(budget.limit_usd)} weekly · no metered spend · ` +
+      `${usd2(budget.uncounted_cost_usd)} recorded but not billed per token`
+    : `${budget.percent_used}% of ${usd2(budget.limit_usd)} weekly · ${usd2(budget.remaining_usd)} left`;
   const meter = $("budget-bar");
   meter.style.width = Math.min(100, budget.percent_used) + "%";
   meter.style.background = `var(--status-${budget.status === "over" ? "critical" : budget.status === "near" ? "warning" : "good"})`;

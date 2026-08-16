@@ -172,7 +172,7 @@ def check_budget_status(period: str = "weekly", source: str | None = RUNTIME_SOU
     else:
         status = "under"
 
-    return {
+    result = {
         "status": status,
         "percent_used": percent_used,
         "remaining_usd": round(limit_usd - spend, 6),
@@ -182,6 +182,25 @@ def check_budget_status(period: str = "weekly", source: str | None = RUNTIME_SOU
         "source_filter": source,
         "counted_calls": report.total_calls,
     }
+
+    # A budget over metered spend reads $0 when every row in the period was
+    # covered by a subscription. That is arithmetically right and completely
+    # unhelpful on its own: next to hundreds of dollars of recorded activity it
+    # just looks like the widget is broken. Say why it is zero, and point at
+    # the figure that does mean something for flat-fee usage.
+    if report.total_calls == 0:
+        everything = compute_report(period_map.get(period, "week"), source=None)
+        if everything.total_calls:
+            uncounted = round(everything.total_cost_usd, 6)
+            result["note"] = (
+                f"No metered spend this period. {everything.total_calls} call(s) worth "
+                f"${uncounted:,.2f} were recorded, but none were billed per token "
+                f"(source_filter={source}). For flat-fee usage see subscription_roi()."
+            )
+            result["uncounted_cost_usd"] = uncounted
+            result["uncounted_calls"] = everything.total_calls
+
+    return result
 
 
 def subscription_roi(period: str = "all_time") -> dict:

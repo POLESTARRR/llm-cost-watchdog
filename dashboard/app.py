@@ -24,9 +24,12 @@ from src.analyzer import (
     flag_anomalies,
     project_burn_rate,
     provider_breakdown,
+    subscription_roi,
 )
 from src.guard import guard_status
 from src.pricing import PRICING_TABLE, calculate_cost, compare_models
+from src.pricing_drift import check_drift
+from src.router import router_status
 from src.waste import find_waste
 from src.providers import configured_providers
 from src.tracker import get_events_for_period, log_usage_many, parse_sources, source_totals
@@ -128,6 +131,29 @@ def waste(
 @app.get("/guard")
 def guard() -> dict:
     return guard_status()
+
+
+@app.get("/roi")
+def roi(period: str = Query("all_time", pattern=PERIOD_RE)) -> dict:
+    """List-price value of flat-fee usage, and what the plan cost over that span.
+
+    The budget widget reads $0 whenever spend is covered by a subscription
+    rather than metered per token, which is arithmetically right and visually
+    alarming. This is the number that actually means something for that case.
+    """
+    return subscription_roi(period)
+
+
+@app.get("/router")
+def router() -> dict:
+    """Declared model groups, active strategy, and anything cooling down."""
+    return router_status()
+
+
+@app.get("/pricing-drift")
+def pricing_drift(refresh: bool = False) -> dict:
+    """Local rates that disagree with the public price map. Never rewrites one."""
+    return check_drift(refresh=refresh)
 
 
 @app.get("/calls")

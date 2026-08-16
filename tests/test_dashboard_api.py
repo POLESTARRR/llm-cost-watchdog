@@ -239,6 +239,59 @@ def test_budget_includes_demo_when_explicitly_asked(client, temp_db):
     assert all_body["spend_usd"] > 0.0       # and counted when asked for
 
 
+def test_budget_explains_why_it_reads_zero(client, temp_db):
+    """A budget over metered spend reads $0 when everything was covered by a
+    subscription. Showing only 0% next to real recorded activity reads as a
+    broken widget, so the response must say why."""
+    from src.tracker import log_usage
+    from src.usage_schema import UsageEvent
+
+    log_usage(
+        UsageEvent(
+            model="claude-opus-5", provider="anthropic", project_tag="build",
+            input_tokens=1000, output_tokens=100, cost_usd=25.0,
+            latency_ms=100.0, source="subscription",
+        ),
+        db_path=temp_db,
+    )
+    body = client.get("/budget").json()
+    assert body["spend_usd"] == 0.0
+    assert "note" in body
+    assert body["uncounted_cost_usd"] == pytest.approx(25.0)
+    assert body["uncounted_calls"] == 1
+
+
+def test_budget_omits_the_note_when_there_is_metered_spend(client, temp_db):
+    from src.tracker import log_usage
+    from src.usage_schema import UsageEvent
+
+    log_usage(
+        UsageEvent(
+            model="claude-opus-5", provider="anthropic", project_tag="app",
+            input_tokens=1000, output_tokens=100, cost_usd=1.0,
+            latency_ms=100.0, source="live",
+        ),
+        db_path=temp_db,
+    )
+    assert "note" not in client.get("/budget").json()
+
+
+def test_roi_endpoint(client):
+    body = client.get("/roi").json()
+    assert "list_price_value_usd" in body
+
+
+def test_router_endpoint_reports_configuration(client):
+    body = client.get("/router").json()
+    assert set(body) >= {"strategy", "groups", "cooldowns", "available_strategies"}
+
+
+def test_pricing_drift_endpoint(client):
+    body = client.get("/pricing-drift").json()
+    assert "checked" in body
+    assert "drifted" in body
+
+
 def test_calls_carry_their_source(client):
     calls = client.get("/calls?period=all_time&limit=5").json()
     assert calls
