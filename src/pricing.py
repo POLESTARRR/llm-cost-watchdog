@@ -37,7 +37,7 @@ PRICING_TABLE: dict[str, dict[str, float]] = {
     # --- OpenAI ----------------------------------------------------------
     # GPT-5.6 family (current gen). `gpt-5.6` aliases to sol.
     # These carry two extra billing rules, see LONG_CONTEXT_MODELS and
-    # CACHE_WRITE_MULTIPLIER below.
+    # the CACHE_WRITE_MULTIPLIER_* constants below.
     "gpt-5.6-sol": {"input": 0.005, "cached_input": 0.0005, "output": 0.030},
     "gpt-5.6-terra": {"input": 0.002, "cached_input": 0.0002, "output": 0.012},
     "gpt-5.6-luna": {"input": 0.0002, "cached_input": 0.00002, "output": 0.0012},
@@ -82,8 +82,27 @@ LONG_CONTEXT_MODELS = ("gpt-5.6",)
 # Writing to the prompt cache is not free on these models: it bills at a
 # premium over the uncached input rate. Cache writes are what make the first
 # call of a cached workload *more* expensive, not less.
-CACHE_WRITE_MULTIPLIER = 1.25
-CACHE_WRITE_BILLED_MODELS = ("gpt-5.6",)
+#
+# The premium depends on the cache's TTL, and this is the single biggest
+# pricing error this project has shipped. Two bugs lived here:
+#
+#   1. `claude` was missing from CACHE_WRITE_BILLED_MODELS entirely, so every
+#      Anthropic cache write billed at a flat 1.0x — no premium at all.
+#   2. There was one multiplier (1.25x, the 5-minute rate), while the real
+#      Claude Code traffic this project imports is 100% *1-hour* ephemeral
+#      writes, which bill at 2.0x.
+#
+# Together those understated this repo's own imported build cost by 14.2%
+# ($12.62 on $88.89). Verified against the transcripts: every sampled turn
+# reports `cache_creation.ephemeral_1h_input_tokens` with a zero 5m field.
+CACHE_WRITE_MULTIPLIER_5M = 1.25
+CACHE_WRITE_MULTIPLIER_1H = 2.0
+CACHE_WRITE_BILLED_MODELS = ("gpt-5.6", "claude")
+
+# Batch requests bill at 50% on every provider that offers the tier. Reported
+# by Anthropic on `usage.service_tier`, so this is read from the data rather
+# than assumed.
+SERVICE_TIER_MULTIPLIERS = {"standard": 1.0, "batch": 0.5, "priority": 1.0}
 
 
 def get_rates(model: str) -> dict[str, float]:
@@ -99,12 +118,24 @@ def bills_cache_writes(model: str) -> bool:
     return model.startswith(CACHE_WRITE_BILLED_MODELS)
 
 
+def tier_multiplier(service_tier: str | None) -> float:
+    """Billing multiplier for a service tier, defaulting to full price.
+
+    Unknown tiers bill at 1.0x rather than raising: a new tier name appearing
+    in a provider's usage block should not crash the tracker, and overcharging
+    is the visible direction of that error.
+    """
+    return SERVICE_TIER_MULTIPLIERS.get(service_tier or "standard", 1.0)
+
+
 def calculate_cost(
     model: str,
     input_tokens: int,
     output_tokens: int,
     cached_input_tokens: int = 0,
     cache_write_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
+    service_tier: str | None = "standard",
 ) -> float:
     """USD cost of one call.
 
@@ -113,6 +144,11 @@ def calculate_cost(
     Each subset bills at its own rate and the remainder at the full input rate,
     so passing a token in both `input_tokens` and a subset argument is correct
     and expected.
+
+    `cache_write_1h_tokens` is in turn a subset of `cache_write_tokens`, the
+    portion written to a 1-hour cache, which bills at 2.0x instead of the
+    5-minute 1.25x. Callers that don't know the TTL split leave it at 0 and get
+    the cheaper 5-minute rate, which understates rather than invents cost.
 
     `output_tokens` should already include reasoning tokens. Every provider
     reports them inside the output count, so adding them separately
@@ -128,16 +164,21 @@ def calculate_cost(
     # Subsets can't exceed the whole, and can't overlap each other.
     cached = min(cached_input_tokens, input_tokens)
     written = min(cache_write_tokens, input_tokens - cached)
+    written_1h = min(cache_write_1h_tokens, written)
+    written_5m = written - written_1h
     uncached = input_tokens - cached - written
 
     cost = (uncached / 1000) * rates["input"] * in_mult
     cost += (cached / 1000) * rates["cached_input"] * in_mult
     if written:
-        write_rate = rates["input"] * (CACHE_WRITE_MULTIPLIER if bills_cache_writes(model) else 1.0)
-        cost += (written / 1000) * write_rate * in_mult
+        premium = bills_cache_writes(model)
+        rate_5m = rates["input"] * (CACHE_WRITE_MULTIPLIER_5M if premium else 1.0)
+        rate_1h = rates["input"] * (CACHE_WRITE_MULTIPLIER_1H if premium else 1.0)
+        cost += (written_5m / 1000) * rate_5m * in_mult
+        cost += (written_1h / 1000) * rate_1h * in_mult
     cost += (output_tokens / 1000) * rates["output"] * out_mult
 
-    return round(cost, 8)
+    return round(cost * tier_multiplier(service_tier), 8)
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> dict:

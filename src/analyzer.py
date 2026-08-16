@@ -12,7 +12,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from src.pricing import calculate_cost, get_rates
-from src.tracker import BILLED_SOURCES, get_events_for_period
+from src.tracker import RUNTIME_SOURCES, get_events_for_period
 from src.usage_schema import AnomalyFlag, CostReport
 
 ROLLING_WINDOW = 20
@@ -140,14 +140,22 @@ def flag_anomalies(
     return anomalies
 
 
-def check_budget_status(period: str = "weekly", source: str | None = BILLED_SOURCES) -> dict:
+def check_budget_status(period: str = "weekly", source: str | None = RUNTIME_SOURCES) -> dict:
     """Compare current period spend against the configured budget.
 
     "near" = spend is at or over 80% of the limit but under 100%.
 
-    Defaults to billed rows only. A budget exists to describe real money, so
-    seeded demo data must not consume it, otherwise loading sample data could
-    report you "over budget" on spend that never happened.
+    Defaults to *runtime* rows only, which is narrower than "real money" and
+    deliberately so. Seeded demo data must not consume the budget (loading
+    sample data could otherwise report you "over budget" on spend that never
+    happened), and neither must a backfilled build transcript: `manual` rows
+    are real money, but they are imported history, not a weekly run rate.
+    Comparing a one-off import of five projects' build cost against a weekly
+    operating budget produces a number that means nothing.
+
+    Build cost is not hidden by this. It stays in compute_report() totals,
+    cost-by-project, and --provenance. Pass source=BILLED_SOURCES to include
+    it here too.
     """
     limit_usd = float(os.environ.get("WEEKLY_BUDGET_USD", "5.00"))
 
@@ -176,7 +184,55 @@ def check_budget_status(period: str = "weekly", source: str | None = BILLED_SOUR
     }
 
 
-def project_burn_rate(period: str = "week", source: str | None = BILLED_SOURCES) -> dict:
+def subscription_roi(period: str = "all_time") -> dict:
+    """What a flat-fee plan returned in list-price API value.
+
+    Claude Code usage on a Pro/Max plan consumes real tokens at real published
+    rates, but no per-token charge occurs — so reporting it as money spent
+    would overstate actual spend by the entire build cost. Reporting it as
+    nothing would be worse: the work happened and it has a market price.
+
+    The honest framing is a ratio. Value delivered is what the same tokens
+    would have cost through the metered API; what you paid is the
+    subscription. Both numbers are real and they answer different questions.
+
+    Set WATCHDOG_SUBSCRIPTION_USD_PER_MONTH to match your plan (default 20,
+    Claude Pro).
+    """
+    monthly = float(os.environ.get("WATCHDOG_SUBSCRIPTION_USD_PER_MONTH", "20.00"))
+    events = [e for e in get_events_for_period(period, source="subscription") if e.success]
+
+    value = round(sum(e.cost_usd for e in events), 6)
+    if not events:
+        return {
+            "period": period, "list_price_value_usd": 0.0, "calls": 0,
+            "note": "no subscription-sourced usage recorded",
+        }
+
+    # Span the usage actually covers, so a two-day burst isn't priced as a
+    # full month of subscription — that would flatter the ratio dishonestly.
+    stamps = sorted(_parse_ts(e.timestamp) for e in events)
+    span_days = max((stamps[-1] - stamps[0]).total_seconds() / 86400, 1 / 24)
+    months = max(span_days / 30.0, 1 / 30.0)  # never bill less than one day
+    paid = round(monthly * months, 6)
+
+    return {
+        "period": period,
+        "calls": len(events),
+        "list_price_value_usd": value,
+        "subscription_cost_usd": paid,
+        "subscription_usd_per_month": monthly,
+        "span_days": round(span_days, 2),
+        "roi_multiple": round(value / paid, 1) if paid else None,
+        "note": (
+            "list_price_value_usd is what these tokens would have cost through the "
+            "metered API. No per-token charge occurred — this is value delivered, "
+            "not money spent."
+        ),
+    }
+
+
+def project_burn_rate(period: str = "week", source: str | None = RUNTIME_SOURCES) -> dict:
     """Project when current spend will exhaust the weekly budget.
 
     Answers the question a raw total can't: "am I on track?" Uses the observed
@@ -185,7 +241,9 @@ def project_burn_rate(period: str = "week", source: str | None = BILLED_SOURCES)
 
     Extrapolation is only as good as the window, a burst of activity in a
     short window projects a misleadingly high rate, so `confidence` reports
-    how much data the projection rests on.
+    how much data the projection rests on. For the same reason this defaults
+    to runtime rows: extrapolating a *rate* from backfilled `manual` history
+    would forecast next week from an import that already happened.
     """
     events = [e for e in get_events_for_period(period, source=source) if e.success]
     limit_usd = float(os.environ.get("WEEKLY_BUDGET_USD", "5.00"))

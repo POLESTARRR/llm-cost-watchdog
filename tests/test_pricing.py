@@ -4,7 +4,8 @@ provider-specific billing rules that most cost trackers get wrong."""
 import pytest
 
 from src.pricing import (
-    CACHE_WRITE_MULTIPLIER,
+    CACHE_WRITE_MULTIPLIER_1H,
+    CACHE_WRITE_MULTIPLIER_5M,
     LONG_CONTEXT_INPUT_MULTIPLIER,
     LONG_CONTEXT_OUTPUT_MULTIPLIER,
     LONG_CONTEXT_THRESHOLD,
@@ -124,7 +125,7 @@ def test_surcharge_does_not_apply_to_other_providers():
 def test_cache_writes_cost_more_than_plain_input_on_gpt56():
     plain = calculate_cost("gpt-5.6-sol", 10_000, 0)
     written = calculate_cost("gpt-5.6-sol", 10_000, 0, cache_write_tokens=10_000)
-    assert written == pytest.approx(plain * CACHE_WRITE_MULTIPLIER)
+    assert written == pytest.approx(plain * CACHE_WRITE_MULTIPLIER_5M)
 
 
 def test_cache_write_ordering_write_gt_plain_gt_read():
@@ -134,10 +135,63 @@ def test_cache_write_ordering_write_gt_plain_gt_read():
     assert written > plain > read
 
 
-def test_cache_writes_not_surcharged_on_models_without_the_rule():
+def test_anthropic_cache_writes_are_surcharged():
+    """Regression: Claude was missing from CACHE_WRITE_BILLED_MODELS, so every
+    Anthropic cache write billed at a flat 1.0x. That understated this repo's
+    own imported build cost by 14.2%."""
     plain = calculate_cost("claude-sonnet-5", 10_000, 0)
     written = calculate_cost("claude-sonnet-5", 10_000, 0, cache_write_tokens=10_000)
-    assert written == pytest.approx(plain)
+    assert written == pytest.approx(plain * CACHE_WRITE_MULTIPLIER_5M)
+    assert written > plain
+
+
+def test_one_hour_cache_writes_cost_more_than_five_minute():
+    """Regression: a single 1.25x multiplier priced 1h writes at the 5m rate.
+    Real Claude Code traffic is 100% 1h ephemeral."""
+    write_5m = calculate_cost("claude-opus-5", 10_000, 0, cache_write_tokens=10_000)
+    write_1h = calculate_cost(
+        "claude-opus-5", 10_000, 0, cache_write_tokens=10_000, cache_write_1h_tokens=10_000
+    )
+    plain = calculate_cost("claude-opus-5", 10_000, 0)
+    assert write_5m == pytest.approx(plain * CACHE_WRITE_MULTIPLIER_5M)
+    assert write_1h == pytest.approx(plain * CACHE_WRITE_MULTIPLIER_1H)
+    assert write_1h > write_5m
+
+
+def test_partial_ttl_split_bills_each_portion_at_its_own_rate():
+    r = PRICING_TABLE["claude-opus-5"]
+    total = calculate_cost(
+        "claude-opus-5", 10_000, 0, cache_write_tokens=10_000, cache_write_1h_tokens=4000
+    )
+    expected = (
+        (6000 / 1000) * r["input"] * CACHE_WRITE_MULTIPLIER_5M
+        + (4000 / 1000) * r["input"] * CACHE_WRITE_MULTIPLIER_1H
+    )
+    assert total == pytest.approx(expected)
+
+
+def test_one_hour_subset_cannot_exceed_total_cache_writes():
+    """An over-large 1h figure must clamp, not invent cost."""
+    clamped = calculate_cost(
+        "claude-opus-5", 10_000, 0, cache_write_tokens=5000, cache_write_1h_tokens=99_999
+    )
+    exact = calculate_cost(
+        "claude-opus-5", 10_000, 0, cache_write_tokens=5000, cache_write_1h_tokens=5000
+    )
+    assert clamped == pytest.approx(exact)
+
+
+def test_batch_tier_bills_at_half():
+    standard = calculate_cost("claude-opus-5", 10_000, 1000)
+    batch = calculate_cost("claude-opus-5", 10_000, 1000, service_tier="batch")
+    assert batch == pytest.approx(standard * 0.5)
+
+
+def test_unknown_service_tier_bills_at_full_price():
+    """Overcharging is the visible error; a new tier name must not crash."""
+    standard = calculate_cost("claude-opus-5", 10_000, 1000)
+    assert calculate_cost("claude-opus-5", 10_000, 1000, service_tier="flex") == pytest.approx(standard)
+    assert calculate_cost("claude-opus-5", 10_000, 1000, service_tier=None) == pytest.approx(standard)
 
 
 def test_cached_and_written_subsets_do_not_double_bill():
@@ -147,7 +201,7 @@ def test_cached_and_written_subsets_do_not_double_bill():
     expected = (
         (3000 / 1000) * r["input"]                                  # uncached remainder
         + (4000 / 1000) * r["cached_input"]                         # cache reads
-        + (3000 / 1000) * r["input"] * CACHE_WRITE_MULTIPLIER       # cache writes
+        + (3000 / 1000) * r["input"] * CACHE_WRITE_MULTIPLIER_5M    # cache writes
     )
     assert total == pytest.approx(expected)
 

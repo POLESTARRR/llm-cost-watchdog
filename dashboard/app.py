@@ -35,8 +35,9 @@ from src.usage_schema import Source, UsageEvent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 PERIOD_RE = "^(today|week|month|all_time)$"
 
-# "all" | "live" | "demo" | "manual" | any comma-separated combination.
-SOURCE_RE = "^(all|(live|demo|manual)(,(live|demo|manual))*)$"
+# "all" | any comma-separated combination of the valid sources.
+_SRC = "live|demo|manual|subscription"
+SOURCE_RE = f"^(all|({_SRC})(,({_SRC}))*)$"
 
 # Set to enable remote import; unset means the endpoint is disabled entirely,
 # not merely unauthenticated. See scripts/import_claude_code_usage.py --remote-url.
@@ -155,8 +156,11 @@ class ImportEvent(BaseModel):
     output_tokens: int
     cached_input_tokens: int = 0
     cache_write_tokens: int = 0
+    cache_write_1h_tokens: int = 0
+    service_tier: str = "standard"
     latency_ms: float = 0.0
     prompt_preview: str = ""
+    prompt_hash: str | None = None
     success: bool = True
     error: str | None = None
     source: Source = "manual"
@@ -198,7 +202,11 @@ def import_events(
             skipped_unpriced += 1
             continue
         cost = (
-            calculate_cost(e.model, e.input_tokens, e.output_tokens, e.cached_input_tokens, e.cache_write_tokens)
+            calculate_cost(
+                e.model, e.input_tokens, e.output_tokens, e.cached_input_tokens,
+                e.cache_write_tokens, cache_write_1h_tokens=e.cache_write_1h_tokens,
+                service_tier=e.service_tier,
+            )
             if e.success else 0.0
         )
         event = UsageEvent(
@@ -209,9 +217,12 @@ def import_events(
             output_tokens=e.output_tokens,
             cached_input_tokens=e.cached_input_tokens,
             cache_write_tokens=e.cache_write_tokens,
+            cache_write_1h_tokens=e.cache_write_1h_tokens,
+            service_tier=e.service_tier,
             cost_usd=cost,
             latency_ms=e.latency_ms,
             prompt_preview=e.prompt_preview,
+            prompt_hash=e.prompt_hash,
             success=e.success,
             error=e.error,
             source=e.source,
