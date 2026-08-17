@@ -39,6 +39,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -50,7 +51,14 @@ from src.pricing import calculate_cost, PRICING_TABLE
 from src.tracker import log_usage
 from src.usage_schema import UsageEvent
 
-_REMOTE_BATCH_SIZE = 200
+# Render's free tier plus a real Turso sync per batch is measurably slower
+# than local SQLite. 200 events per POST regularly exceeded a 30s client
+# timeout there, well after the batch was fully staged, so the whole import
+# looked like a hard failure a few hundred turns in even though most of the
+# work had already succeeded. Smaller batches, and a generous timeout on top,
+# trade a few extra round trips for actually finishing on a slow host.
+_REMOTE_BATCH_SIZE = 40
+_REMOTE_TIMEOUT_SECONDS = 90.0
 
 # Claude Code's own model ids, mapped to this project's pricing table keys.
 # Extend as new models appear in a transcript; anything not listed here (or
@@ -135,7 +143,7 @@ def _prompt_text(record: dict) -> str:
     return "\n".join(p for p in parts if p)
 
 
-def _checkpoint_path(transcript_path: str, project_tag: str) -> Path:
+def _checkpoint_path(transcript_path: str, project_tag: str, sink: str = "local") -> Path:
     """Where we remember which message ids from this transcript are already
     logged, so re-running on a transcript that's grown (the session
     continued) only imports the new turns instead of re-logging everything.
@@ -143,30 +151,92 @@ def _checkpoint_path(transcript_path: str, project_tag: str) -> Path:
     Keyed by project tag as well as transcript: one working directory can hold
     several projects, and a single shared checkpoint would let the first
     project's import mark the other projects' turns as already-done.
+
+    Also keyed by `sink` for anything other than local ("local" or a slug of
+    the remote URL). The local SQLite file and a deployed dashboard's database
+    are genuinely different destinations with independent history, they do not
+    stay in sync with each other. A single shared checkpoint would mean the
+    first import (say, local) marks every message id as done, and a later
+    --remote-url push against the same transcript would see them as
+    already-imported and send nothing, even though the remote database has
+    never seen them.
+
+    `sink="local"` keeps the pre-existing filename (no suffix) so checkpoints
+    already on disk from local imports remain valid, only a non-local sink
+    gets a distinct suffix, since that is the new case this exists to cover.
     """
     p = Path(transcript_path)
-    return p.parent / f".{p.stem}.{project_tag}.imported.json"
+    suffix = "" if sink == "local" else f".{sink}"
+    return p.parent / f".{p.stem}.{project_tag}{suffix}.imported.json"
 
 
-def _push_remote(events: list[dict], remote_url: str, import_key: str) -> dict:
+def _sink_slug(remote_url: str | None) -> str:
+    """Filesystem-safe identifier for a push destination, for the checkpoint name."""
+    if not remote_url:
+        return "local"
+    import re
+
+    return "remote-" + re.sub(r"[^a-zA-Z0-9]+", "-", remote_url.strip()).strip("-").lower()
+
+
+def _push_remote(
+    events: list[dict],
+    message_ids: list[str],
+    remote_url: str,
+    import_key: str,
+    checkpoint: Path,
+    seen_ids: set[str],
+) -> dict:
     """POST events to a deployed dashboard's /import endpoint, in batches.
-    Raises on any non-2xx response rather than silently dropping a batch --
-    a partial import that looks successful is worse than a loud failure.
+
+    `events[i]` and `message_ids[i]` are the same turn, the caller appends
+    both in lockstep, so a batch slice of one is the matching slice of the
+    other. The checkpoint is persisted after *each* batch the server accepts,
+    not once at the end of the whole file. Only checkpointing at the end meant
+    a failure on, say, batch 6 of 10 discarded the fact that batches 1 to 5
+    had already landed durably on the server, so the next run resent them and
+    `/import` mints a fresh UUID per row, no dedup, so that duplicated rows
+    that were never actually missing.
+
+    Raises on any non-2xx response rather than silently dropping a batch, a
+    partial import that looks successful is worse than a loud failure. A
+    timeout is retried a few times with backoff before giving up: on a slow
+    host (free-tier compute plus a real Turso sync per batch) a single slow
+    request is common and does not mean the batch failed, only that it hasn't
+    finished yet. Retrying is safe for the same reason incremental
+    checkpointing is needed at all: a request this client sees as timed out
+    either never reached the server or the server is still working on it,
+    either way nothing has been double counted yet.
     """
     logged = total_cost = skipped = 0
-    with httpx.Client(base_url=remote_url.rstrip("/"), timeout=30.0) as client:
-        for i in range(0, len(events), _REMOTE_BATCH_SIZE):
+    total_batches = (len(events) + _REMOTE_BATCH_SIZE - 1) // _REMOTE_BATCH_SIZE
+    with httpx.Client(base_url=remote_url.rstrip("/"), timeout=_REMOTE_TIMEOUT_SECONDS) as client:
+        for batch_num, i in enumerate(range(0, len(events), _REMOTE_BATCH_SIZE), start=1):
             batch = events[i:i + _REMOTE_BATCH_SIZE]
-            resp = client.post(
-                "/import",
-                json={"events": batch},
-                headers={"X-Watchdog-Import-Key": import_key},
-            )
-            resp.raise_for_status()
-            body = resp.json()
-            logged += body["logged"]
-            skipped += body["skipped_unpriced"]
-            total_cost += body["total_cost_usd"]
+            batch_ids = message_ids[i:i + _REMOTE_BATCH_SIZE]
+            last_exc: Exception | None = None
+            for attempt in range(3):
+                try:
+                    resp = client.post(
+                        "/import",
+                        json={"events": batch},
+                        headers={"X-Watchdog-Import-Key": import_key},
+                    )
+                    resp.raise_for_status()
+                    body = resp.json()
+                    logged += body["logged"]
+                    skipped += body["skipped_unpriced"]
+                    total_cost += body["total_cost_usd"]
+                    seen_ids.update(batch_ids)
+                    checkpoint.write_text(json.dumps(sorted(seen_ids)))
+                    break
+                except httpx.TimeoutException as exc:
+                    last_exc = exc
+                    print(f"    batch {batch_num}/{total_batches} timed out "
+                          f"(attempt {attempt + 1}/3), retrying...")
+                    time.sleep(2 * (attempt + 1))
+            else:
+                raise last_exc
     return {"logged": logged, "skipped_no_price": skipped, "total_cost": total_cost}
 
 
@@ -185,11 +255,12 @@ def load(
     ids, used when one transcript interleaves several projects and each
     project's turns have been attributed separately upstream.
     """
-    checkpoint = _checkpoint_path(path, project_tag)
+    checkpoint = _checkpoint_path(path, project_tag, sink=_sink_slug(remote_url))
     seen_ids = set(json.loads(checkpoint.read_text())) if checkpoint.exists() else set()
     already_imported = len(seen_ids)
     new_ids: list[str] = []
     pending: list[dict] = []  # for --remote-url; local writes happen inline below
+    pending_ids: list[str] = []  # message id for pending[i], same index, see _push_remote
     skipped_no_price = 0
     skipped_synthetic = 0
     logged = 0
@@ -286,19 +357,23 @@ def load(
 
             if remote_url:
                 pending.append(row)
+                pending_ids.append(mid)
             else:
                 log_usage(UsageEvent(cost_usd=cost, **row), db_path=db_path)
             logged += 1
             prev_ts = turn_ts or prev_ts
 
-    # Only commit the checkpoint after the write actually succeeds, a failed
+    # Only commit the checkpoint after a write actually succeeds, a failed
     # remote push must leave these turns eligible for retry on the next run,
-    # not silently marked as already-imported.
+    # not silently marked as already-imported. For the remote path that
+    # happens incrementally per batch inside _push_remote, since seen_ids is
+    # the same set object passed in below, so it is already up to date here
+    # even if a later batch in this same file then fails.
     if remote_url and pending:
-        _push_remote(pending, remote_url, import_key)
-
-    seen_ids.update(new_ids)
-    checkpoint.write_text(json.dumps(sorted(seen_ids)))
+        _push_remote(pending, pending_ids, remote_url, import_key, checkpoint, seen_ids)
+    else:
+        seen_ids.update(new_ids)
+        checkpoint.write_text(json.dumps(sorted(seen_ids)))
 
     return {
         "logged": logged,

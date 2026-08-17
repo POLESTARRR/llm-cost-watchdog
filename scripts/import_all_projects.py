@@ -7,9 +7,15 @@ driver that knows *which* transcripts belong to which project, so adding a new
 project to the dashboard is a one-line edit here instead of a remembered
 command. Run it after building anything new:
 
-    python scripts/import_all_projects.py             # import everything
+    python scripts/import_all_projects.py             # import everything, locally
     python scripts/import_all_projects.py --dry-run   # show the plan only
     python scripts/import_all_projects.py --rebuild   # purge + reimport clean
+
+    # Push the same rows to a deployed dashboard instead of the local DB.
+    # Independent checkpoint from the local run, see _checkpoint_path's
+    # docstring in import_claude_code_usage.py, so this can run any time
+    # without re-sending turns the local DB already has, or vice versa.
+    python scripts/import_all_projects.py --remote-url https://your-dashboard.example.com
 
 Two things make this more than a for-loop:
 
@@ -28,6 +34,7 @@ each turn's tool calls, see `_attribute()`.
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -144,16 +151,44 @@ def main() -> None:
                          "so everything is re-priced with the current pricing table")
     ap.add_argument("--db-path", default=None)
     ap.add_argument("--source", default="subscription", choices=["subscription", "manual"])
+    ap.add_argument("--remote-url", default=None,
+                    help="Push to a deployed dashboard's /import endpoint instead of writing "
+                         "locally, e.g. https://llmcostwatchdog.onrender.com. Uses its own "
+                         "per-destination checkpoint, so this can run independently of, and "
+                         "as often as, the local import.")
+    ap.add_argument("--import-key", default=None,
+                    help="WATCHDOG_IMPORT_KEY on the remote deployment. Defaults to the "
+                         "WATCHDOG_IMPORT_KEY environment variable.")
     args = ap.parse_args()
+
+    import_key = args.import_key or os.environ.get("WATCHDOG_IMPORT_KEY")
+    if args.remote_url and not args.dry_run and not import_key:
+        ap.error("--remote-url requires --import-key or a WATCHDOG_IMPORT_KEY env var")
+
+    if args.rebuild and args.remote_url:
+        # purge_source() only ever touches the local SQLite file, there is no
+        # remote-purge endpoint, and there should not be: wiping a deployed
+        # dashboard's history from a CLI flag is exactly the kind of
+        # destructive action that needs its own explicit, confirmed step.
+        ap.error("--rebuild purges the local DB; it has no effect with --remote-url. "
+                 "Rebuild locally first, then push with --remote-url alone.")
 
     if args.rebuild and not args.dry_run:
         removed = purge_source(args.source, db_path=args.db_path)
         stale = 0
         for d in list(PROJECTS) + list(MIXED_PROJECTS):
             for cp in (TRANSCRIPT_ROOT / d).glob(".*.imported.json"):
+                # Rebuilding the local DB must only clear *local* checkpoints.
+                # A remote checkpoint (`.remote-<slug>.imported.json`) tracks a
+                # different destination's history; wiping it here would make
+                # the next --remote-url run resend already-pushed rows, and
+                # POST /import mints a fresh UUID per row, so that duplicates
+                # them on the remote instead of no-op'ing.
+                if ".remote-" in cp.name:
+                    continue
                 cp.unlink()
                 stale += 1
-        print(f"rebuild: purged {removed} '{args.source}' row(s), cleared {stale} checkpoint(s)\n")
+        print(f"rebuild: purged {removed} '{args.source}' row(s), cleared {stale} local checkpoint(s)\n")
 
     grand_cost, grand_turns = 0.0, 0
     rows: list[tuple[str, int, float]] = []
@@ -168,7 +203,8 @@ def main() -> None:
             if args.dry_run:
                 print(f"  ~  {tag:<20} would import {f.name}")
                 continue
-            st = load(str(f), tag, db_path=args.db_path, source=args.source)
+            st = load(str(f), tag, db_path=args.db_path, source=args.source,
+                      remote_url=args.remote_url, import_key=import_key)
             turns += st["logged"]
             cost += st["total_cost"]
         if not args.dry_run:
@@ -191,7 +227,7 @@ def main() -> None:
                 if not ids:
                     continue
                 st = load(str(f), tag, db_path=args.db_path, source=args.source,
-                          only_message_ids=ids)
+                          only_message_ids=ids, remote_url=args.remote_url, import_key=import_key)
                 rows.append((tag, st["logged"], st["total_cost"]))
                 grand_turns += st["logged"]
                 grand_cost += st["total_cost"]
@@ -200,9 +236,16 @@ def main() -> None:
     if args.dry_run:
         return
 
-    print(f"\n  =  {'TOTAL':<20} {grand_turns:>5} turns  ${grand_cost:>9.4f}")
-    tracked = {e.project_tag for e in get_events(source=args.source, db_path=args.db_path)}
-    print(f"\n  {len(tracked)} project(s) now tracked: {', '.join(sorted(tracked))}")
+    sink = args.remote_url or "local DB"
+    print(f"\n  =  {'TOTAL':<20} {grand_turns:>5} turns  ${grand_cost:>9.4f}  -> {sink}")
+
+    # The post-import "what's tracked now" check reads db_path directly, which
+    # is meaningless for a remote push: db_path names the *local* file, not
+    # the dashboard that was just pushed to. Verify that case with --provenance
+    # against the deployed URL instead (see the README's remote-import section).
+    if not args.remote_url:
+        tracked = {e.project_tag for e in get_events(source=args.source, db_path=args.db_path)}
+        print(f"\n  {len(tracked)} project(s) now tracked: {', '.join(sorted(tracked))}")
 
 
 if __name__ == "__main__":
