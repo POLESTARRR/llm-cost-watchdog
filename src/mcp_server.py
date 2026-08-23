@@ -358,3 +358,19 @@ def grade_shadow_comparisons(limit: int = 20, tier: str | None = None, use_llm: 
     from src.judge import grade_pending
 
     return grade_pending(limit=limit, tier=tier, use_llm=use_llm)
+
+
+@server.tool(
+    description="Rank every cost lever by how much money it is actually worth, on real "
+                "recorded traffic, separating what ALREADY saved money from what merely "
+                "could. This is the corrective to find_waste, which reports categories "
+                "one at a time and so lets the loudest finding outrank the largest one. "
+                "Returns the input/output cost split too, which decides whether a cheaper "
+                "model or a smaller prompt is even the right lever."
+)
+def analyse_cost_levers(period: str = "all_time", source: str | None = None) -> dict:
+    from src.levers import analyse_levers
+
+    if (err := _check_source(source)):
+        return err
+    return analyse_levers(period=period, source=source).as_dict()

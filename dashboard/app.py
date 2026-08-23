@@ -292,6 +292,17 @@ def grade_shadows_endpoint(
     return grade_pending(limit=limit, tier=tier, use_llm=use_llm)
 
 
+@app.get("/levers")
+def levers_endpoint(
+    period: str = Query("all_time", pattern=PERIOD_RE),
+    source: str | None = Query(None, pattern=SOURCE_RE),
+):
+    """Rank every cost lever by size, separating realised from hypothetical."""
+    from src.levers import analyse_levers
+
+    return analyse_levers(period=period, source=source).as_dict()
+
+
 @app.get("/complexity")
 def complexity_endpoint(prompt: str = Query(..., min_length=1, max_length=20000)):
     """Classify a prompt without calling anything. Free, instant, explainable.

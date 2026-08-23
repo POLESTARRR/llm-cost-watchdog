@@ -190,6 +190,12 @@
     border-radius: 8px; padding: .7rem .9rem; margin-bottom: .9rem; font-size: .9rem;
   }
   .headline b { color: var(--status-good); }
+  .section-intro { margin: 1.6rem 0 .9rem; }
+  .section-intro h2 { margin: 0 0 .3rem; font-size: 1.05rem; }
+  .section-intro p {
+    margin: 0; max-width: 78ch; color: var(--text-secondary);
+    font-size: .88rem; line-height: 1.55;
+  }
 
   /* --- gateway hero + live classifier -------------------------------- */
   .hero {
@@ -252,8 +258,12 @@
 
   <div class="hero">
     <h2>Point any OpenAI app at it. No code change.</h2>
-    <p>The API key's suffix becomes the project name in the ledger below, which is how
-       per-project spend gets attributed without the caller passing anything extra.</p>
+    <p><b>"OpenAI-compatible" is a protocol, not a vendor.</b> It is the wire format
+       every LLM client already speaks, so speaking it is what makes this a drop-in.
+       Requests are routed to <b>Anthropic, OpenAI, Google, or a model on your own
+       machine</b> — whichever tier the prompt needs. The API key's suffix becomes the
+       project name in the ledger, which is how per-project cost gets attributed
+       without the caller passing anything extra.</p>
     <pre><span class="c"># your existing app, unmodified</span>
 export OPENAI_BASE_URL=<span id="gw-url">http://localhost:8000</span>/v1
 export OPENAI_API_KEY=wd-<span class="c">my-project</span>
@@ -278,6 +288,16 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
     </div>
   </div>
 
+  <div class="section-intro" id="ledger-intro">
+    <h2>The ledger</h2>
+    <p>Everything the gateway routes lands here. It is pre-loaded with something else too:
+       <b>the real build cost of 20 of this author's own projects</b>, imported from local
+       Claude Code session transcripts. That history is why the router has anything to
+       reason about, and it is why the models below are Anthropic ones while the gateway
+       above is vendor-neutral: it is measurement of past work, not traffic through this
+       endpoint. Filter to <b>Live calls only</b> to see just what the gateway served.</p>
+  </div>
+
   <div class="controls">
     <label for="period">Period</label>
     <select id="period">
@@ -299,9 +319,10 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
 
   <div class="kpis">
     <div class="kpi">
-      <div class="label">Total spend</div>
+      <div class="label" id="total-label">Total spend</div>
       <div class="value" id="total-cost">-</div>
       <div class="note" id="total-calls"></div>
+      <div class="note" id="total-split"></div>
     </div>
     <div class="kpi">
       <div class="label">Budget</div>
@@ -394,8 +415,24 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
 
 <script>
 const $ = (id) => document.getElementById(id);
-const usd = (n) => "$" + Number(n).toFixed(6);
-const usd2 = (n) => "$" + Number(n).toFixed(4);
+// Precision should follow magnitude, not a fixed constant. A flat 4dp printed
+// "$800.3287" for a headline, which reads as machine output nobody edited, and
+// a flat 2dp would print "$0.00" for a real call that cost a twentieth of a
+// cent. Both are wrong in the same way: they show digits that carry no
+// information at that scale, or hide the only ones that do.
+function money(n, opts = {}) {
+  const v = Number(n) || 0;
+  const a = Math.abs(v);
+  if (a === 0) return "$0";
+  if (a >= 100) return "$" + v.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  if (a >= 1) return "$" + v.toFixed(2);
+  if (a >= 0.01) return "$" + v.toFixed(3);
+  if (a >= 0.0001) return "$" + v.toFixed(5);
+  // Below a hundredth of a cent, digits stop meaning anything to a reader.
+  return opts.tiny === false ? "$0" : "<$0.0001";
+}
+const usd = (n) => money(n);
+const usd2 = (n) => money(n);
 const esc = (s) => String(s ?? "").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
 
 // Color follows the entity, never its rank, a provider keeps its hue even
@@ -503,14 +540,23 @@ function renderProvenance(p, sourceFilter) {
     return;
   }
 
-  // The unsolicited "X% is demo data" banner on the all-rows view was
-  // removed by request. The underlying honesty mechanism is untouched and
-  // gives the same answer on demand. Every row still carries a visible
-  // source badge, the Data filter still filters, and GET /provenance still
-  // returns the real split, it's just no longer pushed at you unasked on
-  // every page load.
-  el.className = "provenance";
-  el.innerHTML = "";
+  // A one-line statement of what the headline is made of. The previous
+  // version of this was a percentage-of-demo nag and was removed for being
+  // noise; the lesson taken was "say it once, factually", not "say nothing".
+  // Saying nothing left a $1,117 figure labelled as spend when four fifths of
+  // it was never charged, which is worse than the nag ever was.
+  const sub = p.subscription_cost_usd || 0;
+  const demo = p.demo_cost_usd || 0;
+  if (!sub && !demo) { el.className = "provenance"; el.innerHTML = ""; return; }
+
+  const bits = [];
+  if (sub) bits.push(`<b>${usd2(sub)}</b> is subscription usage (Claude Code on a flat-fee plan)
+                      priced at list rate, real tokens, but <b>no per-token charge occurred</b>`);
+  if (demo) bits.push(`<b>${usd2(demo)}</b> is seeded demo data`);
+  el.className = "provenance show";
+  el.innerHTML = `Of the total below, ${bits.join(", and ")}.
+    <div class="why">Use the Data filter to see billed rows only. This split is why the
+    headline says "measured usage" rather than "spend".</div>`;
 }
 
 function renderRoi(roi) {
@@ -606,11 +652,30 @@ async function load() {
   renderDrift(drift);
 
   renderProvenance(prov, source);
+  const sourceFilter = source;
 
   $("total-cost").textContent = usd2(report.total_cost_usd);
   $("total-calls").textContent =
     `${report.total_calls} call${report.total_calls === 1 ? "" : "s"}` +
     (report.failed_calls ? ` · ${report.failed_calls} failed` : "");
+
+  // "Total spend" is a claim about money leaving an account, and on this data
+  // most of it did not. Subscription rows are real work at real token counts
+  // under a flat fee, so their dollar figure is list-price EQUIVALENT, not a
+  // charge. Headlining the sum as spend is the single most misleading thing
+  // this page could do, and it is exactly what a sceptical reader checks first.
+  const billed = prov.billed_cost_usd || 0;
+  const sub = prov.subscription_cost_usd || 0;
+  const demo = prov.demo_cost_usd || 0;
+  const mixed = (sub + demo) > 0 && sourceFilter === "all";
+
+  $("total-label").textContent = mixed ? "Measured usage (list price)" : "Billed spend";
+
+  const parts = [];
+  if (billed) parts.push(`<b>${usd2(billed)}</b> actually billed`);
+  if (sub) parts.push(`${usd2(sub)} subscription, no per-token charge`);
+  if (demo) parts.push(`${usd2(demo)} seeded demo`);
+  $("total-split").innerHTML = mixed ? parts.join(" · ") : "";
 
   // Status is carried by an explicit word, not by color alone.
   $("budget-status").textContent = budget.status;
