@@ -144,7 +144,7 @@ def test_index_html_is_served(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "text/html" in res.headers["content-type"]
-    assert "LLM Cost Watchdog" in res.text
+    assert "LLM Cost Gateway" in res.text
 
 
 def test_index_defines_palette_vars_on_root_not_viz_root(client):

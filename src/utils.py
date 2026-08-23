@@ -38,7 +38,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("llm-cost-watchdog")
+logger = logging.getLogger("llm-cost-gateway")
 
 # Rate limits are the single most common transient LLM failure. This project
 # hit them repeatedly during its own development. Retrying with jittered

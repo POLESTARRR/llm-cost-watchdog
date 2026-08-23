@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 
 from src.tracker import _connect, init_db
 
-logger = logging.getLogger("llm-cost-watchdog")
+logger = logging.getLogger("llm-cost-gateway")
 
 # Fraction of eligible calls to shadow. 0 disables the feature entirely.
 SHADOW_RATE = float(os.environ.get("WATCHDOG_SHADOW_RATE", "0"))

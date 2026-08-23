@@ -40,7 +40,7 @@ import os
 import random
 import re
 
-logger = logging.getLogger("llm-cost-watchdog")
+logger = logging.getLogger("llm-cost-gateway")
 
 JUDGE_MODEL = os.environ.get("WATCHDOG_JUDGE_MODEL", "ollama/llama3.2:3b")
 

@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from src.pricing import calculate_cost
 from src.tracker import RUNTIME_SOURCES, get_events_for_period
 
-logger = logging.getLogger("llm-cost-watchdog")
+logger = logging.getLogger("llm-cost-gateway")
 
 MODE_OFF, MODE_WARN, MODE_BLOCK = "off", "warn", "block"
 

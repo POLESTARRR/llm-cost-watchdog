@@ -25,7 +25,7 @@ from src.tracker import source_totals as _source_totals
 from src.usage_schema import UsageEvent
 
 server = MCPServer(
-    name="llm-cost-watchdog",
+    name="llm-cost-gateway",
     instructions=(
         "Tracks LLM API cost, tokens, latency, and prompt-cache usage across "
         "Anthropic, OpenAI, and Google. Use these tools to report spend, check "

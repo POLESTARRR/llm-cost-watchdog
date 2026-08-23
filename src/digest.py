@@ -18,7 +18,7 @@ from pathlib import Path
 from src.analyzer import compute_report, flag_anomalies
 from src.utils import call_llm
 
-logger = logging.getLogger("llm-cost-watchdog")
+logger = logging.getLogger("llm-cost-gateway")
 
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "data" / "reports"
 

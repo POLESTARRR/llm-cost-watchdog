@@ -47,7 +47,7 @@ SOURCE_RE = f"^(all|({_SRC})(,({_SRC}))*)$"
 # not merely unauthenticated. See scripts/import_claude_code_usage.py --remote-url.
 IMPORT_KEY = os.environ.get("WATCHDOG_IMPORT_KEY")
 
-app = FastAPI(title="LLM Cost Watchdog", version="2.2.0")
+app = FastAPI(title="LLM Cost Gateway", version="2.2.0")
 
 # The OpenAI-compatible gateway. Mounted on the same app as the dashboard on
 # purpose: one process, one port, one SQLite file, so `uvicorn dashboard.app:app`

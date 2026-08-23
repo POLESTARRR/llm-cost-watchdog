@@ -54,7 +54,7 @@ from pydantic import BaseModel, Field
 from src.guard import BudgetExceededError
 from src.router import RoutingError, model_groups
 
-logger = logging.getLogger("llm-cost-watchdog")
+logger = logging.getLogger("llm-cost-gateway")
 
 router = APIRouter(prefix="/v1", tags=["gateway"])
 
