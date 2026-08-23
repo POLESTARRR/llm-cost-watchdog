@@ -26,6 +26,7 @@ from src.analyzer import (
     provider_breakdown,
     subscription_roi,
 )
+from src.gateway import router as gateway_router
 from src.guard import guard_status
 from src.pricing import PRICING_TABLE, calculate_cost, compare_models
 from src.pricing_drift import check_drift
@@ -46,7 +47,12 @@ SOURCE_RE = f"^(all|({_SRC})(,({_SRC}))*)$"
 # not merely unauthenticated. See scripts/import_claude_code_usage.py --remote-url.
 IMPORT_KEY = os.environ.get("WATCHDOG_IMPORT_KEY")
 
-app = FastAPI(title="LLM Cost Watchdog", version="2.1.0")
+app = FastAPI(title="LLM Cost Watchdog", version="2.2.0")
+
+# The OpenAI-compatible gateway. Mounted on the same app as the dashboard on
+# purpose: one process, one port, one SQLite file, so `uvicorn dashboard.app:app`
+# gives you the proxy AND the UI that reads what the proxy recorded.
+app.include_router(gateway_router)
 
 
 def _source(value: str | None) -> str | None:
@@ -265,4 +271,37 @@ def import_events(
 
 
 # Mounted last so the API routes above take precedence over the static catch-all.
+@app.get("/shadow")
+def shadow_endpoint():
+    """Quality evidence for cheap-model routing, grouped by complexity tier."""
+    from src.shadow import shadow_summary
+
+    return shadow_summary()
+
+
+@app.post("/shadow/grade")
+def grade_shadows_endpoint(
+    limit: int = Query(20, ge=1, le=200),
+    tier: str | None = Query(None, pattern="^(trivial|moderate|complex)$"),
+    use_llm: bool = Query(True),
+):
+    """Grade pending shadow comparisons. Deterministic checks first, then a
+    local judge. POST because it writes verdicts."""
+    from src.judge import grade_pending
+
+    return grade_pending(limit=limit, tier=tier, use_llm=use_llm)
+
+
+@app.get("/complexity")
+def complexity_endpoint(prompt: str = Query(..., min_length=1, max_length=20000)):
+    """Classify a prompt without calling anything. Free, instant, explainable.
+
+    Exposed so the classifier can be interrogated directly: paste a prompt you
+    think was misrouted and see precisely which rules fired.
+    """
+    from src.complexity import classify
+
+    return classify(prompt).as_dict()
+
+
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

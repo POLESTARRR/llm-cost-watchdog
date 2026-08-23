@@ -261,3 +261,39 @@ def test_fallback_candidates_exclude_the_failing_provider(monkeypatch, fallback_
     assert "claude-haiku-4-5" not in candidates      # same provider that failed
     assert "gemini-flash-lite-latest" in candidates  # configured, different provider
     assert "gpt-5-nano" not in candidates            # no credentials
+
+
+def test_fallback_is_recorded_in_the_routing_trail(temp_db, monkeypatch):
+    """A response from a model the routing record never names reads as a bug.
+
+    Real trace this was written for: a complexity route sent a prompt to the
+    frontier tier, that model returned 429, and the call fell back inside the
+    group to the local model. The caller saw `model: ollama/...` next to a
+    decision record naming a Gemini model, with nothing connecting the two.
+    """
+    from src.providers.base import LLMResponse
+    from src.utils import call_llm_detailed
+
+    monkeypatch.setenv("WATCHDOG_GUARD_MODE", "off")
+    monkeypatch.setenv("WATCHDOG_GROUP_PAIR", "gemini-pro-latest,ollama/llama3.2:3b")
+    monkeypatch.setenv("WATCHDOG_ROUTING_STRATEGY", "complexity")
+
+    class Flaky:
+        def complete(self, prompt, model, temperature):
+            if model == "gemini-pro-latest":
+                raise RuntimeError("429 You exceeded your current quota")
+            return LLMResponse(text="local answer", input_tokens=5, output_tokens=3)
+
+    monkeypatch.setattr("src.utils.get_provider", lambda m: Flaky())
+    monkeypatch.setattr("src.router._configured_models", lambda c: (list(c), {}))
+
+    result = call_llm_detailed(
+        "Design a migration strategy and explain the trade-offs.",
+        model_group="pair", max_retries=0,
+    )
+
+    assert result.model == "ollama/llama3.2:3b"
+    assert result.routing["fell_back_from"] == "gemini-pro-latest"
+    assert "quota" in result.routing["fell_back_reason"]
+    # The original decision is preserved alongside the substitution.
+    assert result.routing["complexity"]["tier"] == "complex"

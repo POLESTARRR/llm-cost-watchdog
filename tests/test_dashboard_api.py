@@ -93,7 +93,12 @@ def test_burn_rate_rejects_invalid_period(client):
 
 def test_providers_reports_config_and_breakdown(client):
     body = client.get("/providers?period=all_time").json()
-    assert set(body["configured"]) == {"google", "anthropic", "openai"}
+    # `ollama` is listed like any other provider but, unlike the hosted three,
+    # its configured-ness depends on whether a local server happens to be up,
+    # so this asserts membership rather than a fixed True/False.
+    assert set(body["configured"]) == {"google", "anthropic", "openai", "ollama"}
+    # The breakdown covers providers with recorded traffic; the sample fixture
+    # predates local models, so ollama is absent here by construction.
     assert {r["provider"] for r in body["breakdown"]} == {"anthropic", "openai", "google"}
     for row in body["breakdown"]:
         assert set(row) >= {
@@ -417,3 +422,32 @@ def test_import_defaults_source_to_manual(client, import_key):
     calls = client.get("/calls?period=all_time&limit=5&source=manual").json()
     matching = [c for c in calls if c["project_tag"] == "some-project-build"]
     assert matching and matching[0]["source"] == "manual"
+
+
+# --- routes added after the catch-all static mount --------------------------
+#
+# Regression: /shadow and /complexity were originally appended to the end of
+# app.py, i.e. AFTER `app.mount("/", StaticFiles(...))`. The mount matches every
+# path, so both endpoints 404'd while looking perfectly correct in the source.
+# These tests fail if anyone appends a route to the bottom of the file again.
+
+
+def test_complexity_endpoint_is_reachable_and_explains_itself(client):
+    body = client.get("/complexity", params={"prompt": "reformat this JSON"}).json()
+    assert body["tier"] == "trivial"
+    assert body["signals"]
+
+
+def test_complexity_endpoint_rejects_an_empty_prompt(client):
+    assert client.get("/complexity", params={"prompt": ""}).status_code == 422
+
+
+def test_shadow_endpoint_is_reachable(client):
+    body = client.get("/shadow").json()
+    assert body["total_comparisons"] == 0
+    assert "NOT a saving" in body["note"]
+
+
+def test_gateway_is_mounted_on_the_same_app(client):
+    """One process serves the proxy and the UI that reads what it recorded."""
+    assert client.get("/v1/models").status_code == 200
