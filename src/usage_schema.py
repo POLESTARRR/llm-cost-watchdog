@@ -51,6 +51,13 @@ class UsageEvent(BaseModel):
     cache_write_1h_tokens: int = 0
     cost_usd: float
     latency_ms: float
+    # Time to first token, populated only for streamed calls. `latency_ms`
+    # keeps the same meaning it has everywhere else (total time to completion),
+    # so the two are comparable across streamed and non-streamed calls; TTFT is
+    # additional information, never a redefinition of the existing number.
+    # This is the honest alternative to the shortcut of emitting one synthetic
+    # chunk and calling the whole duration a "time to first token".
+    ttft_ms: float | None = None
     prompt_preview: str = ""
     # SHA-256 of the full prompt. The 80-char `prompt_preview` cannot tell two
     # calls apart when they share a long fixed instruction template, a real

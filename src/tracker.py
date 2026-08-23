@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS usage_events (
     cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0,
     cost_usd REAL NOT NULL,
     latency_ms REAL NOT NULL,
+    ttft_ms REAL,
     prompt_preview TEXT,
     prompt_hash TEXT,
     service_tier TEXT NOT NULL DEFAULT 'standard',
@@ -74,6 +75,7 @@ _MIGRATIONS = [
     ("source", "TEXT NOT NULL DEFAULT 'live'"),
     ("cache_write_1h_tokens", "INTEGER NOT NULL DEFAULT 0"),
     ("prompt_hash", "TEXT"),
+    ("ttft_ms", "REAL"),
     ("service_tier", "TEXT NOT NULL DEFAULT 'standard'"),
 ]
 
@@ -201,9 +203,9 @@ _INSERT_SQL = """
 INSERT INTO usage_events
     (id, timestamp, model, provider, project_tag,
      input_tokens, output_tokens, cached_input_tokens, cache_write_tokens,
-     cache_write_1h_tokens, cost_usd, latency_ms, prompt_preview, prompt_hash,
+     cache_write_1h_tokens, cost_usd, latency_ms, ttft_ms, prompt_preview, prompt_hash,
      service_tier, success, error, source)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -227,6 +229,7 @@ def _insert_params(event: UsageEvent) -> tuple:
         event.cache_write_1h_tokens,
         event.cost_usd,
         event.latency_ms,
+        event.ttft_ms,
         event.prompt_preview,
         event.prompt_hash,
         event.service_tier,
@@ -313,6 +316,7 @@ def get_events(
             latency_ms=row["latency_ms"],
             prompt_preview=row["prompt_preview"] or "",
             prompt_hash=_row_get(row, "prompt_hash", None),
+            ttft_ms=_row_get(row, "ttft_ms", None),
             service_tier=_row_get(row, "service_tier", "standard"),
             success=bool(row["success"]),
             error=row["error"],
