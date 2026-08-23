@@ -43,8 +43,20 @@ from src.usage_schema import UsageEvent
 # doesn't bench a model for an hour.
 DEFAULT_COOLDOWN_SECONDS = int(os.environ.get("WATCHDOG_COOLDOWN_SECONDS", "60"))
 
-STRATEGIES = ("cheapest", "lowest-latency", "lowest-failure", "shuffle")
-DEFAULT_STRATEGY = os.environ.get("WATCHDOG_ROUTING_STRATEGY", "cheapest")
+STRATEGIES = ("cheapest", "lowest-latency", "lowest-failure", "shuffle", "complexity")
+
+
+def default_strategy() -> str:
+    """The configured strategy, resolved at call time.
+
+    Read late for the same reason `model_groups()` is: this module already
+    promises that changing configuration does not require a restart, and a
+    strategy pinned at import time quietly broke that promise. It cost a
+    confusing debugging session, a running gateway kept routing `cheapest`
+    while its own /router endpoint reported `complexity`, because the endpoint
+    read the environment and the router read a stale module global.
+    """
+    return os.environ.get("WATCHDOG_ROUTING_STRATEGY", "cheapest")
 
 # How much history a history-based strategy considers. Short enough to react to
 # a provider degrading today, long enough not to swing on a single call.
@@ -77,12 +89,19 @@ class RoutingDecision:
     candidates: list[str]
     excluded: dict[str, str]
     basis: str
+    # Only populated by the `complexity` strategy: the classifier's full
+    # verdict, so a questionable route can be traced to the signals that
+    # produced it rather than just the tier it landed on.
+    complexity: dict | None = None
 
     def as_dict(self) -> dict:
-        return {
+        out = {
             "group": self.group, "model": self.model, "strategy": self.strategy,
             "candidates": self.candidates, "excluded": self.excluded, "basis": self.basis,
         }
+        if self.complexity is not None:
+            out["complexity"] = self.complexity
+        return out
 
 
 # --- groups --------------------------------------------------------------
@@ -236,6 +255,7 @@ def select(
     estimated_output_tokens: int = 500,
     require_configured: bool = True,
     db_path: str | None = None,
+    prompt: str | None = None,
 ) -> RoutingDecision:
     """Pick one model from `group`, and record why.
 
@@ -244,7 +264,7 @@ def select(
     survives. A strategy is a preference, never a reason to dispatch a call
     that cannot succeed.
     """
-    strategy = strategy or DEFAULT_STRATEGY
+    strategy = strategy or default_strategy()
     if strategy not in STRATEGIES:
         raise RoutingError(f"unknown strategy {strategy!r}; expected one of {list(STRATEGIES)}")
 
@@ -280,27 +300,32 @@ def select(
         )
 
     stats = model_stats()
-    chosen, basis = _rank(candidates, strategy, stats, estimated_input_tokens, estimated_output_tokens)
+    chosen, basis, verdict = _rank(
+        candidates, strategy, stats, estimated_input_tokens, estimated_output_tokens, prompt
+    )
 
     return RoutingDecision(
         group=group, model=chosen, strategy=strategy,
-        candidates=candidates, excluded=excluded, basis=basis,
+        candidates=candidates, excluded=excluded, basis=basis, complexity=verdict,
     )
 
 
 def _rank(
     candidates: list[str], strategy: str, stats: dict[str, dict],
-    in_tokens: int, out_tokens: int,
-) -> tuple[str, str]:
-    """Return (model, human-readable reason)."""
+    in_tokens: int, out_tokens: int, prompt: str | None = None,
+) -> tuple[str, str, dict | None]:
+    """Return (model, human-readable reason, complexity verdict or None)."""
     if strategy == "shuffle":
         pick = random.choice(candidates)
-        return pick, f"random pick from {len(candidates)} candidate(s)"
+        return pick, f"random pick from {len(candidates)} candidate(s)", None
+
+    if strategy == "complexity":
+        return _rank_by_complexity(candidates, prompt, in_tokens, out_tokens)
 
     if strategy == "cheapest":
         priced = {m: estimate_cost(m, in_tokens or 1000, out_tokens)["cost_usd"] for m in candidates}
         pick = min(priced, key=priced.get)
-        return pick, f"cheapest for {in_tokens or 1000}/{out_tokens} tokens (${priced[pick]:.6f})"
+        return pick, f"cheapest for {in_tokens or 1000}/{out_tokens} tokens (${priced[pick]:.6f})", None
 
     # History-based strategies fall back to price when there isn't enough
     # measured traffic to be worth trusting, an unmeasured model is not
@@ -312,21 +337,54 @@ def _rank(
     if not measured:
         priced = {m: estimate_cost(m, in_tokens or 1000, out_tokens)["cost_usd"] for m in candidates}
         pick = min(priced, key=priced.get)
-        return pick, f"no model has {MIN_CALLS_FOR_HISTORY}+ recorded calls; fell back to cheapest"
+        return pick, f"no model has {MIN_CALLS_FOR_HISTORY}+ recorded calls; fell back to cheapest", None
 
     if strategy == "lowest-latency":
         timed = {m: s["avg_latency_ms"] for m, s in measured.items() if s["avg_latency_ms"]}
         if not timed:
             pick = min(measured, key=lambda m: measured[m]["avg_cost_usd"])
-            return pick, "no measured latency; fell back to lowest measured cost"
+            return pick, "no measured latency; fell back to lowest measured cost", None
         pick = min(timed, key=timed.get)
-        return pick, f"lowest measured latency ({timed[pick]:.0f}ms over {measured[pick]['calls']} calls)"
+        return pick, f"lowest measured latency ({timed[pick]:.0f}ms over {measured[pick]['calls']} calls)", None
 
     # lowest-failure: ties broken by measured cost, so the cheapest of several
     # equally-reliable models wins rather than an arbitrary one.
     pick = min(measured, key=lambda m: (measured[m]["failure_rate"], measured[m]["avg_cost_usd"]))
     s = measured[pick]
-    return pick, f"lowest measured failure rate ({s['failure_rate']:.1%} over {s['calls']} calls)"
+    return pick, f"lowest measured failure rate ({s['failure_rate']:.1%} over {s['calls']} calls)", None
+
+
+def _rank_by_complexity(
+    candidates: list[str], prompt: str | None, in_tokens: int, out_tokens: int,
+) -> tuple[str, str, dict | None]:
+    """Pick by what the prompt is asking for, not by what the models cost.
+
+    The candidate list is sorted cheapest-first and the tier indexes into it.
+    Sorting by price is what makes this work without any extra configuration:
+    a model group is already a set the user declared interchangeable, so its
+    price order is a usable stand-in for its capability order.
+
+    Without a prompt this cannot do its job, and guessing would be worse than
+    admitting it: it degrades to the middle tier and says so in the basis, so
+    the fallback is visible in the decision record rather than silent.
+    """
+    from src.complexity import classify, tier_index
+
+    ordered = sorted(
+        candidates, key=lambda m: estimate_cost(m, in_tokens or 1000, out_tokens)["cost_usd"]
+    )
+
+    if prompt is None:
+        pick = ordered[tier_index("moderate", len(ordered))]
+        return pick, "no prompt supplied; defaulted to the middle of the group", None
+
+    verdict = classify(prompt)
+    pick = ordered[tier_index(verdict.tier, len(ordered))]
+    basis = (
+        f"prompt classified {verdict.tier} (score {verdict.score:+d}) -> "
+        f"tier {tier_index(verdict.tier, len(ordered)) + 1} of {len(ordered)} by price"
+    )
+    return pick, basis, verdict.as_dict()
 
 
 # --- counterfactual ------------------------------------------------------
@@ -364,7 +422,12 @@ def simulate_routing(
     routed_to: dict[str, int] = {}
 
     for e in events:
-        pick, _ = _rank(members, strategy, stats, e.input_tokens, e.output_tokens)
+        # No prompt is passed, and none can be: the ledger stores an 80-char
+        # preview and a hash, never the prompt itself. So `complexity` cannot
+        # be simulated against history, it degrades to the middle tier and the
+        # caveat below says so outright rather than returning a number whose
+        # basis the caller would have to go read the source to distrust.
+        pick, _, _ = _rank(members, strategy, stats, e.input_tokens, e.output_tokens)
         routed_to[pick] = routed_to.get(pick, 0) + 1
         simulated += estimate_cost(pick, e.input_tokens, e.output_tokens)["cost_usd"]
 
@@ -383,6 +446,13 @@ def simulate_routing(
         "caveat": (
             "Re-prices real token counts on the model the policy would have picked. "
             "Assumes comparable output quality, it prices the switch, it does not judge it."
+            + (
+                " NOTE: `complexity` routes on prompt text, which the ledger does not store, "
+                "so this simulation fell back to the middle tier for every call and does NOT "
+                "represent what that strategy would really do. Use src/shadow.py to measure it "
+                "on live traffic instead."
+                if strategy == "complexity" else ""
+            )
         ),
     }
 
@@ -391,7 +461,7 @@ def router_status(db_path: str | None = None) -> dict:
     """Everything the router would do right now, without dispatching anything."""
     groups = model_groups()
     return {
-        "strategy": DEFAULT_STRATEGY,
+        "strategy": default_strategy(),
         "available_strategies": list(STRATEGIES),
         "groups": groups,
         "cooldowns": active_cooldowns(db_path=db_path),

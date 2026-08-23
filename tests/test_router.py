@@ -225,3 +225,63 @@ def test_router_status_reports_configuration(groups, temp_db):
 def test_router_status_flags_unpriced_group_members(monkeypatch, temp_db):
     monkeypatch.setenv("WATCHDOG_GROUP_ODD", "claude-haiku-4-5,not-a-real-model")
     assert "not-a-real-model" in router_status(db_path=temp_db)["unpriced_members"]
+
+
+# --- complexity strategy -------------------------------------------------
+#
+# The only strategy that reads the prompt rather than the ledger. These tests
+# pin the mapping from tier to position on the group's price ladder.
+
+
+class TestComplexityStrategy:
+    GROUP = "ollama/llama3.2:3b,claude-haiku-4-5,claude-opus-5"
+
+    @pytest.fixture(autouse=True)
+    def _group(self, monkeypatch, temp_db):
+        monkeypatch.setenv("WATCHDOG_GROUP_LADDER", self.GROUP)
+        monkeypatch.setenv("WATCHDOG_ROUTING_STRATEGY", "complexity")
+
+    def _select(self, prompt):
+        from src.router import select
+
+        return select("ladder", strategy="complexity", require_configured=False, prompt=prompt)
+
+    def test_trivial_prompts_go_to_the_free_local_model(self):
+        d = self._select("reformat this JSON")
+        assert d.model == "ollama/llama3.2:3b"
+        assert d.complexity["tier"] == "trivial"
+
+    def test_complex_prompts_go_to_the_frontier_model(self):
+        d = self._select(
+            "Refactor the storage layer so it can be swapped without touching callers, "
+            "and explain the trade-offs of each approach."
+        )
+        assert d.model == "claude-opus-5"
+        assert d.complexity["tier"] == "complex"
+
+    def test_ambiguous_prompts_land_in_the_middle(self):
+        d = self._select("Can you look at the user service?")
+        assert d.model == "claude-haiku-4-5"
+
+    def test_the_decision_records_why(self):
+        """A route to a 3B model must be auditable after the fact."""
+        d = self._select("reformat this JSON")
+        assert "trivial" in d.basis
+        assert d.complexity["signals"]
+        assert d.as_dict()["complexity"]["score"] <= -2
+
+    def test_missing_prompt_degrades_visibly_instead_of_guessing(self):
+        from src.router import select
+
+        d = select("ladder", strategy="complexity", require_configured=False, prompt=None)
+        assert d.complexity is None
+        assert "no prompt supplied" in d.basis
+
+    def test_simulate_routing_admits_it_cannot_model_this_strategy(self, sample_db):
+        """The ledger stores no prompt text, so a simulated complexity number
+        would be fiction. It must say so rather than return a bare figure."""
+        from src.router import simulate_routing
+
+        out = simulate_routing("ladder", "complexity", period="all_time")
+        assert "does NOT" in out["caveat"]
+        assert "shadow" in out["caveat"]
