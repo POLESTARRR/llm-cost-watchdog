@@ -44,7 +44,7 @@ This project models all of that. One wrapper function, `call_llm()`, records cos
             ▼                              │                            │
    src/gateway.py  /v1/chat/completions     │                            │
    OpenAI wire format · api key → project   │                            │
-   refuses streaming+tools, loudly          │                            │
+   SSE streaming · tool calls · real TTFT  │                            │
             └──────────────┬───────────────┴────────────────────────────┘
                            ▼
                  src/utils.py :: call_llm()
@@ -70,6 +70,10 @@ This project models all of that. One wrapper function, `call_llm()`, records cos
         analyzer.py    guard.py     waste.py      shadow.py
       anomalies      budgets      avoidable     was the cheap
       burn rate      caps         spend         model good enough?
+                                                      │
+                                                  judge.py
+                                              deterministic first,
+                                              local judge as triage
                            │
             ┌──────────────┼──────────────┐
             ▼              ▼              ▼
@@ -126,7 +130,17 @@ cp .env.example .env                # add whichever provider keys you use
 
 You only need keys for providers you actually call. A missing key disables that provider; it doesn't break the tracker.
 
-Load one illustrative fake project so there's something to look at:
+The fastest way to see it work costs nothing and needs no API key at all:
+
+```bash
+ollama serve &                      # https://ollama.com
+ollama pull llama3.2:3b
+python -m uvicorn dashboard.app:app --port 8000 &
+python scripts/gateway_demo.py      # real calls, real ledger rows, $0.00
+```
+
+If you would rather look at populated dashboards before making any calls, there
+is a seeded sample project:
 
 ```bash
 python -m src.tracker --batch-load demo_job_search_agent.json
@@ -136,11 +150,12 @@ python -m src.tracker --batch-load demo_job_search_agent.json
 planted anomalies, not demo content; don't load it into a DB you're using
 day to day.)
 
-These rows land tagged `source=demo`. They are never counted against your
+Those rows land tagged `source=demo`. They are never counted against your
 budget, they can't trip a guardrail, and the dashboard states on its face how
 much of the displayed total they account for, see [§8a Provenance](#8a-provenance--is-this-number-real).
-Once you have real traffic of your own, `python -m src.tracker --purge demo`
-removes them and leaves billed history untouched.
+`python -m src.tracker --purge demo` removes them and leaves billed history
+untouched. **The shipped `data/usage.db` contains no demo rows**; it is real
+imported Claude Code usage plus whatever live traffic you generate.
 
 Then any of:
 
@@ -353,12 +368,39 @@ Every response carries a namespaced extension a strict client will ignore:
 }
 ```
 
-**Two things are refused, loudly.** `stream: true` and `tools` both return 400
-with the reason. Streaming would mean reporting a time-to-first-token that never
-happened into the same ledger this project asks you to trust; tool calls have no
-text body, so "supporting" them would hand your client an empty completion. A
-proxy that silently drops the feature you depend on is worse than one that says
-so at the first request.
+**Streaming is real streaming.** `stream: true` returns server-sent events in
+OpenAI's chunk format, and the wrapper measures time to first token at the first
+byte of actual content, recording it *alongside* total latency rather than
+replacing it. Verified against a live local model: **4811ms TTFT against 6074ms
+total**, over 22 separate chunks. The shortcut this refuses is emitting one
+buffered chunk and calling the whole duration a TTFT, which would put a number
+in the ledger that measures nothing.
+
+Streams do not fail over. Once bytes have reached the client, re-running the
+prompt elsewhere would splice two different answers into one response body, so a
+mid-stream failure arrives as a terminal `error` event.
+
+**Tool calling works, and so does the loop.** Requests offering `tools`, or
+replaying a history that already contains tool results, take a structured path
+that passes real messages through instead of flattening them, because a `tool`
+role has no textual equivalent a provider will interpret correctly. Supported on
+Anthropic, OpenAI and Ollama; not Gemini here.
+
+```
+TURN 1: tool_calls | get_weather {"city": "Paris"}     $0.00  173 tok
+TURN 2: stop       | "The current weather in Paris is 18 degrees Celsius…"  $0.00  115 tok
+```
+
+That two-turn loop is real output against `llama3.2:3b`, and getting it working
+surfaced a bug worth naming: **Ollama returns tool-call `arguments` as a decoded
+object and also requires an object inbound, while the OpenAI wire format
+specifies a JSON string in both directions.** Normalizing only the response made
+turn one work and turn two fail with *"Value looks like object, but can't find
+closing '}' symbol"*. Every agent loop would have broken on its second call.
+
+**Still refused: streaming *plus* tools**, with the reason. Reassembling a tool
+call from partial argument deltas is real work this hasn't done, and guessing at
+half-parsed JSON would be worse than saying no.
 
 A budget block surfaces as **429**, not 402: it is a self-imposed quota that
 will clear, and every OpenAI client already knows how to back off on a 429.
@@ -446,6 +488,34 @@ Collection and judgement are separate on purpose. `GET /shadow` reports
 `unverified_savings_usd` alongside `scored` and `acceptance_rate`, and refuses to
 call the first one a saving until the others cover it. Four hundred ungraded
 comparisons look like evidence and are not; they are raw material.
+
+### Grading (`src/judge.py`)
+
+`POST /shadow/grade` turns pairs into a number, with two graders that fail
+differently:
+
+**Deterministic checks run first and are trusted absolutely.** If the expensive
+answer's Python parses and the cheap one's does not, no further judgement is
+wanted. They abstain rather than guess, which is the common case, and they
+abstain when *both* answers are broken, because that is not a difference between
+the models.
+
+**A local LLM judge handles the rest, and is labelled as the weak evidence it
+is.** The obvious objection, that a 3B model is grading a 3B model, is real and
+shapes the design: the judge is asked a narrow comparative question rather than
+for a quality score, it never learns which answer came from which model, the two
+answers are presented in **randomised order** because position bias is the
+best-documented LLM-judge failure mode, and an unparseable verdict counts as
+*inadequate* rather than quietly inflating the acceptance rate.
+
+Verdicts record `scored_by`, so `deterministic` and `local-judge` grades can
+always be separated. `WATCHDOG_JUDGE_MODEL` points the same pipeline at a
+stronger model if you have budget for one.
+
+One guard the first real run forced: **a shadow against the same model is
+skipped.** The primary call had already failed over to the local model, so the
+shadow re-ran that same model and produced two rows of pure noise that would
+have landed in the acceptance rate as if they were evidence.
 
 ---
 
@@ -1070,9 +1140,21 @@ Stated plainly rather than hidden:
 - **`simulate_routing` cannot evaluate `complexity`.** The ledger stores no
   prompt text by design, so that combination degrades to the middle tier and
   labels itself as not representative.
-- **The gateway supports neither streaming nor tool calls.** Both 400 with an
-  explanation. For agent workloads, which is most of what the author's own
-  traffic is, that is a real limitation and not a small one.
+- **Streaming and tool calling cannot be combined.** Each works alone; together
+  the gateway 400s, because reassembling a tool call from partial argument
+  deltas has not been done. For a streaming agent client that is a real
+  limitation.
+- **Gemini has no tool-calling adapter here.** Anthropic, OpenAI and Ollama do.
+  Gemini's function-calling shape differs enough to need its own translation
+  layer, and writing one that has never been run against the live API would be
+  guessing in public.
+- **The Anthropic and OpenAI streaming and tool paths are unit-tested against
+  captured response shapes, not live endpoints,** because no keys are
+  configured. Only the Ollama paths have been exercised end to end for real.
+- **The local judge is a 3B model grading a 3B model.** Blind, order-randomised,
+  and treated as triage rather than evidence, but the limitation is structural
+  and no amount of prompt care removes it. Deterministic verdicts are the part
+  that carries weight; filter on `scored_by` before quoting any acceptance rate.
 - **The gateway is unauthenticated unless `WATCHDOG_GATEWAY_KEY` is set,** and
   `/v1/models` says so in a `warning` field. Fine on localhost, unsafe anywhere
   else.
