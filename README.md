@@ -218,7 +218,8 @@ python scripts/weekly_digest.py
 python -m uvicorn dashboard.app:app --reload --port 8000
 
 # Prove the live path end to end with real calls (see §13)
-python scripts/gateway_demo.py
+python scripts/proof.py             # six proofs, via the official OpenAI SDK
+python scripts/gateway_demo.py      # the same path over raw HTTP
 
 # Or containerized
 docker compose up                       # DASHBOARD_PORT=8001 docker compose up  if 8000 is taken
