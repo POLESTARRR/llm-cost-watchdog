@@ -518,6 +518,19 @@ Verdicts record `scored_by`, so `deterministic` and `local-judge` grades can
 always be separated. `WATCHDOG_JUDGE_MODEL` points the same pipeline at a
 stronger model if you have budget for one.
 
+First real numbers, from the five-call demo with shadowing on:
+
+| tier | comparisons | real cost | real latency | local latency | acceptance |
+|---|---|---|---|---|---|
+| moderate | 1 | $0.000026 | 4973ms | 4159ms | 0% |
+| complex | 1 | $0.000551 | 5974ms | **34219ms** | 0% |
+
+Two data points prove nothing about acceptance, and the table is here mostly to
+show what the pipeline produces rather than to claim a result. The latency
+column is already the more interesting one: on the complex prompt the free local
+model took **5.7x longer** than the paid one it was replacing. That is the real
+cost of "free", and it is exactly the number a cost-only analysis never shows.
+
 One guard the first real run forced: **a shadow against the same model is
 skipped.** The primary call had already failed over to the local model, so the
 shadow re-ran that same model and produced two rows of pure noise that would
