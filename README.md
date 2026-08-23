@@ -19,6 +19,48 @@ The earlier version of this project was a Python wrapper you imported. It had a 
 
 The one component that did collect real data was the importer, precisely because it required no integration at all: it read files that already existed. The gateway is that lesson applied to the live path.
 
+### What changed, and what didn't
+
+The gateway is **purely additive**. Every capability the watchdog had still
+works, through the same code paths, and the wrapper it was built around is still
+a supported entry point, it is now the gateway's engine rather than its only
+front door.
+
+| | Watchdog (before) | Gateway (now) |
+|---|---|---|
+| **Adoption cost** | rewrite every LLM call to `call_llm()` | one env var, or import the wrapper as before |
+| **Entry points** | Python import | Python import **+** `/v1/chat/completions` **+** MCP **+** dashboard |
+| **Providers** | Anthropic · OpenAI · Google | + **Ollama** (local, $0.00/token) |
+| **Routing strategies** | cheapest · lowest-latency · lowest-failure · shuffle | + **complexity** (reads the prompt, not the ledger) |
+| **Streaming** | — | real SSE, all 4 providers, **measured TTFT** |
+| **Tool calling** | — | Anthropic · OpenAI · Ollama, full agent loop |
+| **Quality evidence** | none (`simulate_routing` priced switches, never judged them) | **shadow comparison + grading** |
+| **Cost attribution** | per project, set in code | per project, **from the API key** |
+| **MCP tools** | 16 | **21** |
+| **HTTP endpoints** | 15 | **20** |
+| **Test files / tests** | 13 / 360 | **19 / 462** |
+| **Live rows in the ledger** | **0** | real traffic, with real failures |
+
+Everything below carries over untouched: the [three-rate pricing model](#1-the-problem)
+(cache reads, cache writes, the 1-hour TTL split, OpenAI's long-context
+surcharge), [anomaly detection](#3-the-anomaly-detection-formula),
+[guardrails](#6-guardrails-the-part-that-stops-spend),
+[waste finding](#7-finding-waste), [provenance](#8a-provenance--is-this-number-real),
+subscription-vs-billed accounting, pricing-drift checks, the weekly agentic
+digest, Turso persistence, and the Claude Code transcript importer.
+
+Three things were **changed** rather than added, each because the live path
+exposed a defect the ledger alone could not:
+
+- **`WATCHDOG_ROUTING_STRATEGY` now resolves at call time.** It was read at
+  import time while `model_groups()` was read at call time, so a running gateway
+  routed `cheapest` while its own `/router` endpoint reported `complexity`.
+- **Fallbacks are recorded.** A 429 that failed over within a group returned a
+  model the decision record never named, which reads as a routing bug and is in
+  fact failover working. `fell_back_from` closes that.
+- **`UsageEvent` gained `ttft_ms`.** Added alongside `latency_ms`, never
+  replacing it, so streamed and non-streamed calls stay comparable.
+
 ---
 
 ## 1. The problem
