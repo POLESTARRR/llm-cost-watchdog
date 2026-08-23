@@ -259,7 +259,7 @@ export OPENAI_BASE_URL=<span id="gw-url">http://localhost:8000</span>/v1
 export OPENAI_API_KEY=wd-<span class="c">my-project</span>
 
 <span class="c"># ask for a group instead of a model, and it routes by prompt complexity</span>
-client.chat.completions.create(model=<b>"group:ladder"</b>, messages=[...])</pre>
+client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messages=[...])</pre>
     <div class="gw-state" id="gw-state">checking gateway…</div>
 
     <div class="try">
@@ -383,7 +383,7 @@ client.chat.completions.create(model=<b>"group:ladder"</b>, messages=[...])</pre
         <thead><tr>
           <th>Time</th><th>Source</th><th>Model</th><th>Project</th>
           <th class="num">Tokens</th><th class="num">Cached</th>
-          <th class="num">Cost</th><th>Prompt</th>
+          <th class="num">TTFT</th><th class="num">Cost</th><th>Prompt</th>
         </tr></thead>
         <tbody id="calls"></tbody>
       </table>
@@ -669,11 +669,11 @@ async function load() {
           <td><span class="dot" style="background:${colorFor(c.provider)}"></span>${esc(c.model)}</td>
           <td>${esc(c.project_tag)}</td>
           <td class="num">${c.input_tokens}/${c.output_tokens}</td>
-          <td class="num">${c.cached_input_tokens || "-"}</td>
+          <td class="num">${c.ttft_ms ? Math.round(c.ttft_ms) + "ms" : "-"}</td>
           <td class="num">${usd(c.cost_usd)}</td>
           <td class="preview">${c.success ? "" : '<span class="failed">failed</span> '}${esc(c.prompt_preview)}</td>
         </tr>`).join("")
-    : `<tr><td colspan="8" class="empty">No calls in this period</td></tr>`;
+    : `<tr><td colspan="9" class="empty">No calls in this period</td></tr>`;
 }
 
 $("period").addEventListener("change", () => load().catch(showError));
@@ -747,6 +747,16 @@ document.querySelectorAll('.examples button').forEach(b => {
     const models = (d.data || []).filter(m => !m.id.startsWith('group:'));
     const groups = (d.data || []).filter(m => m.id.startsWith('group:'));
     const local = models.filter(m => m.owned_by === 'ollama');
+
+    // Advertise a group that actually resolves here. The deployed site told
+    // visitors to use group:ladder while returning 400 for it.
+    const groupEl = document.getElementById('gw-group');
+    if (groups.length) {
+      groupEl.textContent = `"${groups[0].id}"`;
+    } else if (models.length) {
+      groupEl.textContent = `"${models[0].id}"`;
+      groupEl.nextSibling && null;
+    }
 
     let html = `Gateway <b class="on">live</b> · ${models.length} model(s) reachable`;
     if (local.length) html += ` · ${local.length} running locally at $0.00/token`;

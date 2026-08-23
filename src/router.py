@@ -46,6 +46,14 @@ DEFAULT_COOLDOWN_SECONDS = int(os.environ.get("WATCHDOG_COOLDOWN_SECONDS", "60")
 STRATEGIES = ("cheapest", "lowest-latency", "lowest-failure", "shuffle", "complexity")
 
 
+# The name of the group synthesized when nobody has declared one.
+DEFAULT_GROUP = "ladder"
+
+# How many tiers a synthesized ladder has. Three matches the classifier's
+# trivial/moderate/complex, so every tier is reachable.
+DEFAULT_LADDER_SIZE = 3
+
+
 def default_strategy() -> str:
     """The configured strategy, resolved at call time.
 
@@ -56,7 +64,11 @@ def default_strategy() -> str:
     while its own /router endpoint reported `complexity`, because the endpoint
     read the environment and the router read a stale module global.
     """
-    return os.environ.get("WATCHDOG_ROUTING_STRATEGY", "cheapest")
+    # `complexity` rather than `cheapest`, because a group containing a free
+    # local model makes `cheapest` degenerate: it sends architecture questions
+    # to a 3B model forever, since nothing is cheaper than $0. Asking a group
+    # to route at all implies wanting the right tier, not always the bottom one.
+    return os.environ.get("WATCHDOG_ROUTING_STRATEGY", "complexity")
 
 # How much history a history-based strategy considers. Short enough to react to
 # a provider degrading today, long enough not to swing on a single call.
@@ -107,12 +119,19 @@ class RoutingDecision:
 # --- groups --------------------------------------------------------------
 
 
-def model_groups() -> dict[str, list[str]]:
+def model_groups(include_default: bool = True) -> dict[str, list[str]]:
     """Groups declared as WATCHDOG_GROUP_<NAME>=model,model,model.
 
     Read from the environment at call time rather than import time so a test or
     a running process can change them without a restart, the same reason
     tracker.resolve_db_path() resolves late.
+
+    When nothing is declared, a `ladder` group is synthesized from whatever
+    providers are actually configured. A gateway that requires four environment
+    variables before `group:ladder` resolves is not a gateway anyone will try:
+    this project's own deployment advertised that group on its front page while
+    returning 400 for it, because the variables were never set on the host.
+    An explicitly declared group of the same name always wins.
     """
     groups: dict[str, list[str]] = {}
     for key, value in os.environ.items():
@@ -122,7 +141,61 @@ def model_groups() -> dict[str, list[str]]:
         members = [m.strip() for m in value.split(",") if m.strip()]
         if name and members:
             groups[name] = members
+
+    if include_default and not groups:
+        if ladder := default_ladder():
+            groups[DEFAULT_GROUP] = ladder
     return groups
+
+
+def default_ladder(size: int = DEFAULT_LADDER_SIZE) -> list[str]:
+    """A cheapest-to-most-capable ladder built from configured providers.
+
+    Price order stands in for capability order, which is defensible here for
+    the same reason it is inside a hand-declared group: these are all general
+    chat models, and within one vendor's line-up price tracks capability
+    closely enough to pick a tier.
+
+    Returns [] when nothing is configured, so callers get "no groups" rather
+    than a group whose every member is unreachable.
+    """
+    from src.pricing import PRICING_TABLE, estimate_cost
+    from src.providers import ProviderError, _PROVIDERS, configured_providers, infer_provider
+
+    available = configured_providers()
+    candidates: list[str] = []
+
+    for model in PRICING_TABLE:
+        try:
+            owner = infer_provider(model)
+        except ProviderError:
+            continue
+        if available.get(owner):
+            candidates.append(model)
+
+    # Locally-served models are discovered rather than enumerated, and belong at
+    # the bottom of the ladder because they cost nothing per token.
+    #
+    # Availability comes from the same `configured_providers()` view used for
+    # hosted models above, not from calling the adapter's own probe: two
+    # different sources of truth for "is this usable" is how a caller ends up
+    # with a ladder whose rungs disagree with what /providers reports.
+    if available.get("ollama"):
+        ollama = _PROVIDERS.get("ollama")
+        if ollama is not None:
+            candidates = ollama.available_models()[:1] + candidates
+
+    if not candidates:
+        return []
+
+    priced = sorted(candidates, key=lambda m: estimate_cost(m, 1000, 500)["cost_usd"])
+    if len(priced) <= size:
+        return priced
+
+    # Take the cheapest, the dearest, and evenly spaced rungs between, so the
+    # ladder spans the real price range instead of clustering at one end.
+    idx = sorted({round(i * (len(priced) - 1) / (size - 1)) for i in range(size)})
+    return [priced[i] for i in idx]
 
 
 def resolve_group(group: str) -> list[str]:
@@ -460,10 +533,14 @@ def simulate_routing(
 def router_status(db_path: str | None = None) -> dict:
     """Everything the router would do right now, without dispatching anything."""
     groups = model_groups()
+    declared = model_groups(include_default=False)
     return {
         "strategy": default_strategy(),
         "available_strategies": list(STRATEGIES),
         "groups": groups,
+        # A synthesized ladder must never look like something the operator
+        # chose; they need to know it will change if their credentials do.
+        "groups_are_default": not declared,
         "cooldowns": active_cooldowns(db_path=db_path),
         "cooldown_seconds": DEFAULT_COOLDOWN_SECONDS,
         "history_window_days": HISTORY_WINDOW_DAYS,

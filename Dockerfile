@@ -5,11 +5,18 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Separate from requirements.txt on purpose, see the comment there. This
-# image builds for linux/amd64 (Render's platform), where libsql ships a
-# real prebuilt wheel, so this stays a fast, no-compile install here even
-# though it can't go in the shared requirements file.
-RUN pip install --no-cache-dir libsql==0.1.11
+# Separate from requirements.txt on purpose, see the comment there. On
+# linux/amd64 (Render's platform) libsql ships a prebuilt wheel and this is a
+# fast, no-compile install.
+#
+# On arm64 there is no wheel, so pip falls back to building from source and
+# starts downloading a Rust toolchain. That turned `docker build` on an Apple
+# Silicon Mac into a failure, while the README advertised `docker compose up`
+# as a way to run this. Turso is optional (src/turso_backend.py is only used
+# when TURSO_DATABASE_URL is set), so a missing wheel must not fail the build:
+# the image still runs, backed by local SQLite.
+RUN pip install --no-cache-dir libsql==0.1.11 \
+    || echo "libsql unavailable for this architecture; Turso disabled, SQLite still works"
 
 COPY src/ ./src/
 COPY dashboard/ ./dashboard/

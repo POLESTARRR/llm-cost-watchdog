@@ -403,7 +403,6 @@ def stream_llm(
     """
     from src.providers import supports_streaming
 
-    group_members: list[str] = []
     routing: dict | None = None
     if model_group:
         from src.router import select
@@ -412,8 +411,10 @@ def stream_llm(
             model_group, estimated_input_tokens=len(prompt) // 4, prompt=prompt
         )
         model = decision.model
-        group_members = decision.candidates
         routing = decision.as_dict()
+        # The rest of the group is deliberately NOT captured here: streams do
+        # not fail over, so a fallback candidate list would be dead state
+        # implying a behaviour this function does not have.
 
     provider_name = _safe_infer(model)
     provider = get_provider(model)

@@ -12,7 +12,6 @@ import time
 import pytest
 
 from src.providers.base import LLMResponse, ProviderError, StreamChunk, supports_streaming
-from src.usage_schema import UsageEvent
 from src.utils import CallResult, stream_llm
 
 

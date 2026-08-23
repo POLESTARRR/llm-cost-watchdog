@@ -24,7 +24,6 @@ reports that it could not check rather than failing the caller.
 """
 
 import json
-import os
 from pathlib import Path
 
 from src.pricing import PRICING_TABLE

@@ -236,10 +236,10 @@ Add this to `claude_desktop_config.json`
 ```json
 {
   "mcpServers": {
-    "llm-cost-watchdog": {
-      "command": "/absolute/path/to/llm-cost-watchdog/venv/bin/python",
+    "llm-cost-gateway": {
+      "command": "/absolute/path/to/llm-cost-gateway/venv/bin/python",
       "args": ["-m", "src.mcp_server"],
-      "cwd": "/absolute/path/to/llm-cost-watchdog"
+      "cwd": "/absolute/path/to/llm-cost-gateway"
     }
   }
 }
@@ -252,7 +252,7 @@ Use absolute paths, and point `command` at the **venv's** Python so dependencies
 ```bash
 crontab -e
 # Every Monday at 9am
-0 9 * * MON cd /path/to/llm-cost-watchdog && venv/bin/python scripts/weekly_digest.py
+0 9 * * MON cd /path/to/llm-cost-gateway && venv/bin/python scripts/weekly_digest.py
 ```
 
 Each run appends to `data/reports/digest_runs.log` and writes `data/reports/{date}_digest.json`.
@@ -402,6 +402,22 @@ proxy recorded.
 export OPENAI_BASE_URL=http://localhost:8000/v1
 export OPENAI_API_KEY=wd-checkout-service
 ```
+
+**It works with no configuration.** If you declare no groups, a `ladder` group is
+synthesized from whatever providers your credentials actually reach, ordered
+cheapest-first, and the default strategy is `complexity`. `group:ladder`
+therefore resolves on a fresh install and on a fresh deploy. `/router` reports
+`groups_are_default: true` so a synthesized ladder never looks like something
+you chose. Declaring `WATCHDOG_GROUP_LADDER` overrides it entirely.
+
+This is not a nicety: this project's own deployment advertised `group:ladder` on
+its front page while returning 400 for it, because the environment variables
+were only ever set on a laptop.
+
+The default strategy is `complexity`, not `cheapest`, for a related reason. With
+a $0 local model in the pool `cheapest` is degenerate, nothing beats free, so it
+would send architecture questions to a 3B model forever. Asking a group to route
+implies wanting the right tier, not always the bottom one.
 
 Ask for a model by name and it is called directly. Ask for `group:<name>` and it
 is routed. The API key's suffix becomes the ledger's `project_tag`, which is

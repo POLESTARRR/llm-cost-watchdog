@@ -1,5 +1,7 @@
 """Routing: model groups, cooldowns, history-based selection, and simulation."""
 
+import os
+
 import pytest
 
 from src.router import (
@@ -285,3 +287,75 @@ class TestComplexityStrategy:
         out = simulate_routing("ladder", "complexity", period="all_time")
         assert "does NOT" in out["caveat"]
         assert "shadow" in out["caveat"]
+
+
+class TestDefaultLadder:
+    """A gateway that needs four env vars before `group:ladder` resolves is one
+    nobody will try. This project's own deployment advertised that group on its
+    front page while returning 400 for it, because nothing was set on the host.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_declared_groups(self, monkeypatch):
+        for key in list(os.environ):
+            if key.startswith("WATCHDOG_GROUP_"):
+                monkeypatch.delenv(key, raising=False)
+
+    def test_a_ladder_exists_with_no_configuration_at_all(self, monkeypatch):
+        from src.router import DEFAULT_GROUP, model_groups
+
+        monkeypatch.setattr("src.providers.configured_providers",
+                            lambda: {"google": True, "anthropic": True, "openai": False, "ollama": False})
+        groups = model_groups()
+        assert DEFAULT_GROUP in groups
+        assert len(groups[DEFAULT_GROUP]) >= 2
+
+    def test_the_ladder_is_ordered_cheapest_first(self, monkeypatch):
+        from src.pricing import estimate_cost
+        from src.router import default_ladder
+
+        monkeypatch.setattr("src.providers.configured_providers",
+                            lambda: {"google": True, "anthropic": True, "openai": True, "ollama": False})
+        costs = [estimate_cost(m, 1000, 500)["cost_usd"] for m in default_ladder()]
+        assert costs == sorted(costs)
+
+    def test_it_only_offers_models_whose_provider_is_configured(self, monkeypatch):
+        from src.providers import infer_provider
+        from src.router import default_ladder
+
+        monkeypatch.setattr("src.providers.configured_providers",
+                            lambda: {"google": True, "anthropic": False, "openai": False, "ollama": False})
+        assert default_ladder()
+        assert all(infer_provider(m) == "google" for m in default_ladder())
+
+    def test_nothing_configured_means_no_group_rather_than_a_broken_one(self, monkeypatch):
+        from src.router import default_ladder, model_groups
+
+        monkeypatch.setattr("src.providers.configured_providers",
+                            lambda: {"google": False, "anthropic": False, "openai": False, "ollama": False})
+        assert default_ladder() == []
+        assert model_groups() == {}
+
+    def test_a_declared_group_always_wins(self, monkeypatch):
+        from src.router import model_groups
+
+        monkeypatch.setenv("WATCHDOG_GROUP_LADDER", "claude-haiku-4-5")
+        assert model_groups()["ladder"] == ["claude-haiku-4-5"]
+
+    def test_status_says_when_the_group_was_synthesized(self, monkeypatch, temp_db):
+        from src.router import router_status
+
+        monkeypatch.setattr("src.providers.configured_providers",
+                            lambda: {"google": True, "anthropic": False, "openai": False, "ollama": False})
+        assert router_status(db_path=temp_db)["groups_are_default"] is True
+        monkeypatch.setenv("WATCHDOG_GROUP_FAST", "gemini-flash-latest")
+        assert router_status(db_path=temp_db)["groups_are_default"] is False
+
+
+def test_the_default_strategy_is_complexity_not_cheapest(monkeypatch):
+    """With a $0 local model in the pool, `cheapest` is degenerate: it sends
+    architecture questions to a 3B model forever, because nothing beats free."""
+    from src.router import default_strategy
+
+    monkeypatch.delenv("WATCHDOG_ROUTING_STRATEGY", raising=False)
+    assert default_strategy() == "complexity"
