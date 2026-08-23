@@ -206,7 +206,16 @@ def list_models():
         for name in model_groups()
     ]
 
-    body = {"object": "list", "data": data}
+    # Machine-readable, because there are two distinct states that a client
+    # must not confuse and a prose `warning` cannot separate: "deployed with no
+    # key, completions refused" and "no key on localhost, completions fine".
+    # The dashboard string-matched the warning and reported a working local
+    # gateway as read-only.
+    body = {
+        "object": "list",
+        "data": data,
+        "completions_enabled": not _open_to_the_world(),
+    }
     if _open_to_the_world():
         body["warning"] = (
             "DEPLOYED WITHOUT WATCHDOG_GATEWAY_KEY: completions are refused (503) until one is "

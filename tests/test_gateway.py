@@ -262,3 +262,15 @@ class TestDeployedSafety:
         monkeypatch.setattr("src.gateway.GATEWAY_KEY", None)
         assert client.get("/report").status_code == 200
         assert "DEPLOYED WITHOUT" in client.get("/v1/models").json()["warning"]
+
+
+def test_models_reports_completions_enabled_as_a_flag(client, monkeypatch):
+    """Two states a prose warning cannot separate, and the dashboard got wrong:
+    'deployed, no key, refused' versus 'localhost, no key, working'."""
+    monkeypatch.delenv("PORT", raising=False)
+    monkeypatch.delenv("TURSO_DATABASE_URL", raising=False)
+    monkeypatch.setattr("src.gateway.GATEWAY_KEY", None)
+    assert client.get("/v1/models").json()["completions_enabled"] is True
+
+    monkeypatch.setenv("PORT", "10000")
+    assert client.get("/v1/models").json()["completions_enabled"] is False

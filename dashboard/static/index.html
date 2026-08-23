@@ -190,6 +190,56 @@
     border-radius: 8px; padding: .7rem .9rem; margin-bottom: .9rem; font-size: .9rem;
   }
   .headline b { color: var(--status-good); }
+
+  /* --- gateway hero + live classifier -------------------------------- */
+  .hero {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.1rem 1.2rem; margin-bottom: 1.1rem;
+  }
+  .hero h2 { margin: 0 0 .35rem; font-size: 1.05rem; }
+  .hero p { margin: 0 0 .8rem; color: var(--text-secondary); font-size: .9rem; line-height: 1.5; }
+  .hero pre {
+    background: var(--surface-0); border: 1px solid var(--border); border-radius: 8px;
+    padding: .7rem .85rem; margin: 0; overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem;
+    line-height: 1.6; color: var(--text-primary);
+  }
+  .hero pre .c { color: var(--text-muted); }
+  .gw-state { font-size: .82rem; margin-top: .7rem; color: var(--text-secondary); }
+  .gw-state b.on  { color: var(--status-good); }
+  .gw-state b.off { color: var(--status-warning); }
+  .try { margin-top: .9rem; }
+  .try label { display:block; font-size:.78rem; text-transform:uppercase;
+               letter-spacing:.04em; color: var(--text-muted); margin-bottom:.35rem; }
+  .try-row { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .try input {
+    flex:1 1 320px; padding:.55rem .7rem; border-radius:7px;
+    border:1px solid var(--border); background: var(--surface-0);
+    color: var(--text-primary); font-size:.88rem; font-family: inherit;
+  }
+  .try button {
+    padding:.55rem 1rem; border-radius:7px; border:1px solid var(--border);
+    background: var(--text-primary); color: var(--surface-1);
+    font-size:.85rem; font-weight:600; cursor:pointer;
+  }
+  .try button:hover { opacity:.87; }
+  .verdict { margin-top:.7rem; font-size:.88rem; display:none; }
+  .verdict.show { display:block; }
+  .tier {
+    display:inline-block; padding:.2rem .6rem; border-radius:999px;
+    font-weight:700; font-size:.78rem; letter-spacing:.03em; text-transform:uppercase;
+  }
+  .tier-trivial  { background: color-mix(in srgb, var(--status-good) 18%, transparent);    color: var(--status-good); }
+  .tier-moderate { background: color-mix(in srgb, var(--status-warning) 20%, transparent); color: var(--status-warning); }
+  .tier-complex  { background: color-mix(in srgb, var(--status-critical) 16%, transparent);color: var(--status-critical); }
+  .routes-to { color: var(--text-secondary); margin-left:.5rem; }
+  .signals { margin:.55rem 0 0; padding-left:1.1rem; color: var(--text-muted); font-size:.83rem; }
+  .signals li { margin:.15rem 0; }
+  .examples { margin-top:.55rem; font-size:.8rem; color: var(--text-muted); }
+  .examples button {
+    background:none; border:none; padding:0 .45rem 0 0; cursor:pointer;
+    color: var(--series-anthropic); font-size:.8rem; text-decoration:underline; font-family:inherit;
+  }
 </style>
 </head>
 <body>
@@ -197,8 +247,36 @@
 <div class="wrap">
   <header>
     <h1>LLM Cost Gateway</h1>
-    <div class="sub">Cost, latency &amp; prompt-cache observability across Anthropic, OpenAI and Google</div>
+    <div class="sub">An OpenAI-compatible gateway that routes each request to the cheapest model that can handle it, enforces budgets before money is spent, and records every call</div>
   </header>
+
+  <div class="hero">
+    <h2>Point any OpenAI app at it. No code change.</h2>
+    <p>The API key's suffix becomes the project name in the ledger below, which is how
+       per-project spend gets attributed without the caller passing anything extra.</p>
+    <pre><span class="c"># your existing app, unmodified</span>
+export OPENAI_BASE_URL=<span id="gw-url">http://localhost:8000</span>/v1
+export OPENAI_API_KEY=wd-<span class="c">my-project</span>
+
+<span class="c"># ask for a group instead of a model, and it routes by prompt complexity</span>
+client.chat.completions.create(model=<b>"group:ladder"</b>, messages=[...])</pre>
+    <div class="gw-state" id="gw-state">checking gateway…</div>
+
+    <div class="try">
+      <label for="try-prompt">Try the router's classifier — runs here, instantly, calls no model</label>
+      <div class="try-row">
+        <input id="try-prompt" placeholder="e.g. reformat this JSON" autocomplete="off">
+        <button id="try-go">Classify</button>
+      </div>
+      <div class="examples">
+        try:
+        <button data-ex="reformat this JSON: {'a':1}">reformat this JSON</button>
+        <button data-ex="Can you take a look at the user service?">look at the user service</button>
+        <button data-ex="Design a zero-downtime schema migration and explain the trade-offs.">design a migration</button>
+      </div>
+      <div class="verdict" id="verdict"></div>
+    </div>
+  </div>
 
   <div class="controls">
     <label for="period">Period</label>
@@ -605,6 +683,86 @@ function showError(err) {
     `<div class="empty">Failed to load data: ${esc(err.message)}</div>`);
 }
 load().catch(showError);
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* --- gateway hero: live state + the classifier demo -------------------- */
+
+// The snippet should show the URL the visitor is actually on, not localhost.
+document.getElementById('gw-url').textContent = location.origin;
+
+const TIER_ROUTES = {
+  trivial:  'the cheapest tier — a free local model when one is configured',
+  moderate: 'the middle tier',
+  complex:  'the most capable tier in the group',
+};
+
+function renderVerdict(v) {
+  const box = document.getElementById('verdict');
+  const signals = (v.signals || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  box.innerHTML =
+    `<span class="tier tier-${v.tier}">${v.tier}</span>` +
+    ` <span class="routes-to">score ${v.score >= 0 ? '+' : ''}${v.score} → routes to ${TIER_ROUTES[v.tier]}</span>` +
+    (signals ? `<ul class="signals">${signals}</ul>` : '');
+  box.classList.add('show');
+}
+
+async function classify() {
+  const prompt = document.getElementById('try-prompt').value.trim();
+  if (!prompt) return;
+  const box = document.getElementById('verdict');
+  try {
+    const r = await fetch('/complexity?prompt=' + encodeURIComponent(prompt));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    renderVerdict(await r.json());
+  } catch (e) {
+    box.innerHTML = `<span class="tier tier-complex">error</span>
+      <span class="routes-to">${escapeHtml(String(e))}</span>`;
+    box.classList.add('show');
+  }
+}
+
+document.getElementById('try-go').addEventListener('click', classify);
+document.getElementById('try-prompt').addEventListener('keydown', e => {
+  if (e.key === 'Enter') classify();
+});
+document.querySelectorAll('.examples button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.getElementById('try-prompt').value = b.dataset.ex;
+    classify();
+  });
+});
+
+// Whether this deployment can actually serve completions. A gateway that is
+// refusing to spend money should say so on its face rather than letting a
+// visitor discover it with a 503.
+(async () => {
+  const el = document.getElementById('gw-state');
+  try {
+    const r = await fetch('/v1/models');
+    const d = await r.json();
+    const models = (d.data || []).filter(m => !m.id.startsWith('group:'));
+    const groups = (d.data || []).filter(m => m.id.startsWith('group:'));
+    const local = models.filter(m => m.owned_by === 'ollama');
+
+    let html = `Gateway <b class="on">live</b> · ${models.length} model(s) reachable`;
+    if (local.length) html += ` · ${local.length} running locally at $0.00/token`;
+    if (groups.length) html += ` · groups: ${groups.map(g => g.id).join(', ')}`;
+    if (d.completions_enabled === false) {
+      html = `Gateway <b class="off">read-only</b> — completions refused until ` +
+             `<code>WATCHDOG_GATEWAY_KEY</code> is set. Dashboards and the classifier below ` +
+             `still work.<br><span style="color:var(--text-muted)">Deliberate: without a key ` +
+             `any caller could spend the owner's provider quota.</span>`;
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = 'Gateway <b class="off">unreachable</b>';
+  }
+})();
+
 </script>
 </body>
 </html>
