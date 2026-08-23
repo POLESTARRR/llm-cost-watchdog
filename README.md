@@ -1,10 +1,23 @@
-# LLM Cost & Observability Watchdog
+# LLM Cost Gateway
 
-A personal cost, latency, and prompt-cache observability layer for LLM API calls across **Anthropic, OpenAI, and Google**, exposed to Claude Desktop as an **MCP server**.
+A self-hosted **OpenAI-compatible gateway** that routes each request to the cheapest model that can actually handle it, enforces budgets before money is spent, and records every call in a ledger you own, across **Anthropic, OpenAI, Google, and locally-hosted models**.
 
-Wrap every LLM call you make in one tracked function, store it, watch it for anomalies and budget overruns, and get an autonomous weekly digest of what you spent and what looked wrong.
+Adoption is one environment variable:
 
-There is no chat UI. You talk to it through Claude Desktop ("what did I spend this week?", "would Haiku have been cheaper?"), or open the local dashboard in a browser.
+```bash
+export OPENAI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=wd-my-project        # the suffix names the project in the ledger
+```
+
+Any app built on the OpenAI SDK is now tracked, routed, budget-enforced and failed-over **without one line of its source changing**. Ask it for `group:ladder` instead of a model name and it classifies your prompt and picks the tier: mechanical work goes to a free local model, architectural work goes to the frontier one.
+
+It is also an **MCP server**, so you can ask Claude Desktop *"what did I spend this week?"*, and a browser dashboard.
+
+### Why the gateway exists
+
+The earlier version of this project was a Python wrapper you imported. It had a ledger, a router, guardrails, waste detection and 360 passing tests, and it had recorded exactly **zero** live calls, including from its author's own thirteen other projects. Adopting it meant rewriting every LLM call you had; that price was higher than the benefit, every time, for everyone.
+
+The one component that did collect real data was the importer, precisely because it required no integration at all: it read files that already existed. The gateway is that lesson applied to the live path.
 
 ---
 
@@ -25,40 +38,53 @@ This project models all of that. One wrapper function, `call_llm()`, records cos
 ## 2. Architecture
 
 ```
-   your other projects                     this project's own digest calls
-            │                                            │
-            └───────────────────┬────────────────────────┘
-                                ▼
-                    src/utils.py :: call_llm()
+  ANY OpenAI-SDK app          projects that import the wrapper       digest
+  (OPENAI_BASE_URL=…)                      │                            │
+            │                              │                            │
+            ▼                              │                            │
+   src/gateway.py  /v1/chat/completions     │                            │
+   OpenAI wire format · api key → project   │                            │
+   refuses streaming+tools, loudly          │                            │
+            └──────────────┬───────────────┴────────────────────────────┘
+                           ▼
+                 src/utils.py :: call_llm()
    guardrails (can BLOCK) · infers provider from model ID · retries 429s with
-   backoff · falls over to another provider · prices it · logs EVERY call
-                                │
-              ┌─────────────────┼─────────────────┐
-              ▼                 ▼                 ▼
-      providers/gemini   providers/anthropic  providers/openai
-              └─────────────────┼─────────────────┘
-                     normalized LLMResponse
-                (text, input, output, cached, cache_write)
-                                │
-                                ▼
-                 src/tracker.py ──►  data/usage.db  (SQLite)
-                                │     one row per call
-                                ▼
-              src/analyzer.py · guard.py · waste.py
-   reports · anomalies · budget · burn rate · guardrails · waste finding
-                                │
-            ┌───────────────────┼───────────────────┐
-            ▼                   ▼                   ▼
-     src/digest.py       src/mcp_server.py    dashboard/app.py
-   weekly agentic loop    16 tools, stdio      FastAPI + static HTML
-                          → Claude Desktop     → localhost:8000
+   backoff · falls over (and RECORDS the substitution) · prices it · logs ALL
+                           │
+            ┌──────────────┴───── routing (src/router.py) ─────┐
+            │   cheapest · lowest-latency · lowest-failure ·   │
+            │   shuffle · complexity ◄── src/complexity.py     │
+            │                            reads the PROMPT,     │
+            │                            not the ledger        │
+            └──────────────┬──────────────────────────────────┘
+                           ▼
+   providers/  gemini · anthropic · openai · ollama (local, $0.00)
+                           │
+                normalized LLMResponse
+                           │
+                           ▼
+            src/tracker.py ──►  data/usage.db  (SQLite)
+                           │     one row per call
+              ┌────────────┼────────────┬──────────────┐
+              ▼            ▼            ▼              ▼
+        analyzer.py    guard.py     waste.py      shadow.py
+      anomalies      budgets      avoidable     was the cheap
+      burn rate      caps         spend         model good enough?
+                           │
+            ┌──────────────┼──────────────┐
+            ▼              ▼              ▼
+     src/digest.py   src/mcp_server.py  dashboard/app.py
+   weekly loop        20 tools, stdio    FastAPI + gateway + HTML
+                      → Claude Desktop   → localhost:8000
 ```
 
-Two design decisions carry the project:
+Three design decisions carry the project:
 
-**The wrapper is the product.** `call_llm()` logs before it returns, so there is no code path where a call happens and isn't tracked, including calls that fail, which is exactly when you most want the record.
+**Nothing is tracked that isn't intercepted.** `call_llm()` logs before it returns, so there is no code path where a call happens and isn't tracked, including calls that fail, which is exactly when you most want the record.
 
-**The provider adapter is the seam.** Each vendor reports usage in a different shape; the adapters normalize to one `LLMResponse`. Tracker, analyzer, digest, dashboard, and MCP never learn which vendor a call came from. Adding a provider is one adapter + one pricing entry.
+**The gateway is the product; the wrapper is its engine.** Both entry points converge on the same function, so routing, guardrails, pricing and the ledger are identical whichever you use. The gateway exists because the wrapper's adoption cost, rewriting your calls, was the thing actually preventing the ledger from ever seeing real traffic.
+
+**The provider adapter is the seam.** Each vendor reports usage in a different shape; the adapters normalize to one `LLMResponse`. Tracker, analyzer, digest, dashboard, and MCP never learn which vendor a call came from. Adding a provider is one adapter + one pricing entry, which is exactly what adding local models turned out to be.
 
 ---
 
@@ -125,8 +151,11 @@ python -m src.tracker --log-manual --model claude-opus-5 --cost 0.002 --project 
 # Weekly digest (also the cron entrypoint)
 python scripts/weekly_digest.py
 
-# Dashboard at http://localhost:8000
-uvicorn dashboard.app:app --reload --port 8000
+# Dashboard AND the OpenAI-compatible gateway, same process, http://localhost:8000
+python -m uvicorn dashboard.app:app --reload --port 8000
+
+# Prove the live path end to end with real calls (see §13)
+python scripts/gateway_demo.py
 
 # Or containerized
 docker compose up                       # DASHBOARD_PORT=8001 docker compose up  if 8000 is taken
@@ -296,6 +325,127 @@ Those matter for a shared gateway serving many callers; LiteLLM's Router
 already does them well, and reimplementing them badly here would trade the one
 thing this project has, the ledger, for a worse copy of something that
 exists.
+
+---
+
+## 6a. The gateway: adoption without a code change
+
+`src/gateway.py` mounts an OpenAI-compatible endpoint on the same FastAPI app as
+the dashboard, so one process gives you the proxy and the UI that reads what the
+proxy recorded.
+
+```bash
+export OPENAI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=wd-checkout-service
+```
+
+Ask for a model by name and it is called directly. Ask for `group:<name>` and it
+is routed. The API key's suffix becomes the ledger's `project_tag`, which is
+what makes the existing per-project caps in `guard.py` apply to gateway traffic
+without the caller passing anything extra.
+
+Every response carries a namespaced extension a strict client will ignore:
+
+```json
+"x_watchdog": {
+  "cost_usd": 0.000456, "latency_ms": 5411.0, "project": "checkout-service",
+  "routing": {"complexity": {"tier": "complex", "score": 4}, "basis": "..."}
+}
+```
+
+**Two things are refused, loudly.** `stream: true` and `tools` both return 400
+with the reason. Streaming would mean reporting a time-to-first-token that never
+happened into the same ledger this project asks you to trust; tool calls have no
+text body, so "supporting" them would hand your client an empty completion. A
+proxy that silently drops the feature you depend on is worse than one that says
+so at the first request.
+
+A budget block surfaces as **429**, not 402: it is a self-imposed quota that
+will clear, and every OpenAI client already knows how to back off on a 429.
+
+## 6b. Local models: the zero-cost tier
+
+`ollama/<model>` routes to a local Ollama server. It is the first provider here
+whose "credential" is a running process rather than an API key, so
+`is_configured()` probes the server instead of reading an env var.
+
+Local models are zero-rated **by prefix, not by table entry**. Every other model
+has to be enumerated because its price is a fact about a vendor's price list; a
+local model's price is a fact about where it runs. Without that rule an unlisted
+local model would hit `_FALLBACK_RATES` and be reported as spend that never
+happened, which is exactly what the provenance system exists to prevent.
+
+Adding a $0.00 model surfaces something worth stating plainly: **it makes
+`cheapest` degenerate.** Local wins every comparison, for every prompt, forever.
+That is not a bug to patch out. It is the clearest demonstration available that
+price alone was never a routing policy, which is what the next section is for.
+
+The cost that *is* real here is latency. Measured on an M-series laptop with
+`llama3.2:3b`: ~5s cold model load, then ~25 tokens/sec. The ledger records that
+like any other call, so "free" is never reported without the number qualifying it.
+
+## 6c. Complexity routing: the strategy that reads the prompt
+
+Every other strategy ranks models by something measured *about the model*. This
+one looks at what is being asked:
+
+```
+"reformat this JSON"                    -> trivial   -> free local model
+"Can you look at the user service?"     -> moderate  -> mid-tier
+"Design a zero-downtime migration…"     -> complex   -> frontier
+```
+
+Three commitments shape it:
+
+- **It is heuristic, not a model call.** A classifier that costs an API call to
+  decide which API to call is a tax on every request, and on cheap prompts it
+  costs more than it saves. This runs in microseconds and spends nothing.
+- **It reports its reasoning.** Every rule that fired is listed with what it
+  contributed, so a route to a 3B model is auditable after the fact. `GET
+  /complexity?prompt=…` classifies anything without calling a model.
+- **It is deliberately biased upward.** Misrouting a hard prompt to a weak model
+  costs you an hour; misrouting an easy one to a strong model costs a fraction
+  of a cent. Ambiguous prompts escalate, and the short-prompt discount is
+  suppressed whenever any complexity signal fired, because *"design a
+  zero-downtime migration strategy"* is fifty characters and is not easy work.
+
+Tiers index into the group's **price ladder**, so no extra configuration is
+needed: a model group is already a set you declared interchangeable, which is
+the only context where price is a defensible proxy for capability.
+
+`simulate_routing` **cannot** model this strategy, and says so in its own
+`caveat` rather than returning a number you would have to read the source to
+distrust: the ledger stores an 80-char preview and a hash, never prompt text.
+Measuring complexity routing requires live traffic, which is what §6d is for.
+
+## 6d. Shadow comparison: was the cheap model good enough?
+
+`simulate_routing` already admitted the limit: *"it prices the switch, it does
+not judge it."* Re-pricing tokens tells you what you would have paid, never
+whether you would have accepted the answer, and a saving you had to redo by hand
+is not a saving.
+
+`src/shadow.py` closes that the only way it honestly can: run the cheap model on
+**the same real prompt** and keep both answers.
+
+```bash
+WATCHDOG_SHADOW_RATE=0.05     # shadow one call in twenty
+```
+
+- **The user never waits.** The shadow runs after the real response is already
+  returned, and every exception is swallowed. A quality experiment must never be
+  able to fail a request that already succeeded.
+- **It is free.** The shadow target is local; the frontier call was happening
+  anyway. A shadow against a second paid API doubles your bill to study your bill.
+- **It stores prompts, and that is the one deliberate exception** to this
+  project's never-log-full-prompts rule. Evidence you cannot re-read is not
+  evidence. Shadow rows live in their own table, are opt-in, and
+  `purge_shadows()` deletes them.
+
+Collection and judgement are separate on purpose. `GET /shadow` reports
+`unverified_savings_usd` alongside `scored` and `acceptance_rate`, and refuses to
+call the first one a saving until the others cover it. Four hundred ungraded
+comparisons look like evidence and are not; they are raw material.
 
 ---
 
@@ -866,13 +1016,73 @@ promotional rates are not modelled, see Known gaps.
 
 ---
 
+## 13. The live trace: what actually happened the first time
+
+Real output from `scripts/gateway_demo.py`, five real calls through the running
+gateway against a three-tier ladder
+(`ollama/llama3.2:3b, gemini-flash-lite-latest, gemini-pro-latest`):
+
+```
+reformat this JSON: {'a':1,'b':2}
+   tier=trivial  -> ollama/llama3.2:3b          $0.000000   2786ms
+Can you take a look at the user service?
+   tier=moderate -> gemini-flash-lite-latest    $0.000057   1160ms
+Why is this test flaky? Walk me through the possible race conditions.
+   tier=complex  -> ollama/llama3.2:3b          $0.000000  22763ms
+                    (FELL BACK from gemini-pro-latest: rate limit / quota exhausted)
+Design a zero-downtime schema migration strategy…
+   tier=complex  -> gemini-flash-lite-latest    $0.000456   5411ms
+
+total: $0.000512 across 5 calls, 1 fallback
+```
+
+Three things in that trace are worth more than the cost number:
+
+**It produced this project's first real failure data.** Before the gateway, the
+ledger held 4,186 real rows with **zero** failures, because they were imported
+from transcripts of calls that had already succeeded. The `lowest-failure`
+routing strategy had, quite literally, nothing to rank on. The first live run
+recorded four genuine 429s, a persisted cooldown, and a within-group fallback.
+
+**The fallback initially looked like a routing bug.** The response named
+`ollama/llama3.2:3b` while the decision record named `gemini-pro-latest`, with
+nothing connecting them. The fix was not to the router, which was correct, but to
+the record: a fallback now writes `fell_back_from` and `fell_back_reason` into the
+decision trail. A decision record that omits the substitution is worse than none,
+it is a confident wrong answer about what happened.
+
+**The last call went to the mid tier despite classifying `complex`,** because
+`gemini-pro-latest` was still benched from the previous call's 429. That is hard
+constraints filtering before the strategy ranks, working exactly as §6 describes,
+and it is visible only because the run was real.
+
+---
+
 ## Known gaps
 
 Stated plainly rather than hidden:
 
+- **The complexity classifier is a cheap prior, not an oracle.** It reads English,
+  reads the prompt alone rather than the conversation around it, and its verb
+  lists are a judgement call rather than a trained boundary. `src/shadow.py`
+  exists to measure how good a prior it actually is; until shadow data is
+  collected and *graded*, the tier boundaries are reasoning, not evidence.
+- **`simulate_routing` cannot evaluate `complexity`.** The ledger stores no
+  prompt text by design, so that combination degrades to the middle tier and
+  labels itself as not representative.
+- **The gateway supports neither streaming nor tool calls.** Both 400 with an
+  explanation. For agent workloads, which is most of what the author's own
+  traffic is, that is a real limitation and not a small one.
+- **The gateway is unauthenticated unless `WATCHDOG_GATEWAY_KEY` is set,** and
+  `/v1/models` says so in a `warning` field. Fine on localhost, unsafe anywhere
+  else.
+- **Shadow rows store full prompt text.** The one deliberate exception to the
+  never-log-prompts rule, opt-in, isolated to its own table, deletable.
+
 - **Pricing is a snapshot, now with a second opinion.** Rates are still hardcoded and still need an edit when a vendor moves them, but `python -m src.pricing_drift` reconciles every mapped rate against a public, community-maintained price map and reports disagreement. It never rewrites a rate, silently re-pricing recorded history is worse than a stale number.
 - **No date-ranged pricing.** The table holds one rate per model, so introductory and promotional pricing is not modelled. The drift checker currently flags Sonnet 5 for exactly this reason: the table carries $3/$15 per MTok while the introductory $2/$10 is in effect through 2026-08-31, so Sonnet-5 traffic in that window is over-priced here. Fixing it properly means date-ranged rates, which is a real change rather than a table edit.
-- **Live-tested against Google only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo, no keys were configured. The Gemini path has made real, tracked calls. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
+- **Live-tested against Google and Ollama only.** The Anthropic and OpenAI adapters are unit-tested against captured response shapes but have not been exercised against a live endpoint in this repo, no keys were configured. The Gemini and local paths have made real, tracked calls through the gateway. This is not just a note in a README: `get_provider_breakdown` reports `live_calls: 0` for both, and the dashboard labels their bars **NO LIVE CALLS**.
+- **The Gemini free-tier quota is exhausted,** which is why the live trace in §13 shows `gemini-pro-latest` returning 429 and falling back. That made for better evidence than a clean run would have, but it does mean the frontier tier of the demo ladder is not currently reachable.
 - **The shipped DB mixes one fake project with real ones.** `job-search-agent` is illustrative (`demo_job_search_agent.json`, `source=demo`, ~$19.4, never billed, scaled up from an earlier ~$0.20 revision purely so it isn't dwarfed to invisibility next to real numbers 1000x its size; the labeling, badges, and filtering are unchanged, it's still openly fake). `llm-cost-watchdog-build` / `civil-prep-build` are real *build-time* Claude Code usage imported from local session transcripts (`source=manual`, ~$130 combined, see [§8d](#8d-what-it-actually-cost-to-build-these-projects-with-claude-code)). The small real *runtime* rows from [§8b](#8b-real-integration-tracking-civil-prep)/[§8c](#8c-portfolio-survey-does-this-hold-up-across-every-real-project) (`civil-prep` / `cost-watchdog-self`, `source=live`, a few thousandths of a dollar) were removed from the shipped DB, several orders of magnitude smaller than build cost, they cluttered the Cost-by-Project view without changing the conclusion. The methodology and code are unchanged and reproducible; §8b/§8c describe what actually happened when they ran, they just aren't sitting in the current snapshot. Run `python -m src.tracker --provenance` for the live numbers, and `--purge demo` to drop the fake project entirely.
 - **The digest's LLM path is exercised via its fallback.** The free-tier quota was exhausted during development, so the deterministic summary is what's been observed end-to-end. Both paths are tested.
 - **Burn rate extrapolates linearly** from the observed span. A burst in a short window projects a misleadingly high rate, which is why every projection carries a `confidence` field.

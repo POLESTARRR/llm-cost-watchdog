@@ -287,3 +287,74 @@ def check_pricing_drift(refresh: bool = False) -> dict:
 
 if __name__ == "__main__":
     server.run(transport="stdio")
+
+
+@server.tool(
+    description="Classify how hard a prompt is, the input the 'complexity' routing strategy "
+                "uses to pick a model tier. Returns tier ('trivial' | 'moderate' | 'complex'), "
+                "a score, and every heuristic rule that fired with what it contributed. Free "
+                "and instant: it is pure heuristics and calls no model. Use it to understand "
+                "why a prompt was routed where it was, or to check a routing decision you "
+                "think was wrong."
+)
+def classify_prompt_complexity(prompt: str) -> dict:
+    from src.complexity import classify
+
+    return classify(prompt).as_dict()
+
+
+@server.tool(
+    description="Report the shadow-comparison dataset: real prompts that were answered by a "
+                "real model AND re-answered by a cheap local one, grouped by complexity tier. "
+                "This is the only thing here that speaks to routing QUALITY rather than cost. "
+                "Note 'unverified_savings_usd' is what those calls cost on the real model, "
+                "i.e. what routing them locally would have avoided, and is NOT a saving until "
+                "'scored' covers them and 'acceptance_rate' says the cheap answers held up."
+)
+def get_shadow_summary() -> dict:
+    from src.shadow import shadow_summary
+
+    return shadow_summary()
+
+
+@server.tool(
+    description="List shadow comparisons that have not been graded yet, so a human or a judge "
+                "can decide whether the cheap model's answer was good enough. Each row holds "
+                "the real prompt, the real model's answer, and the local model's answer. "
+                "Grade one with record_shadow_verdict."
+)
+def list_pending_shadow_reviews(limit: int = 10, tier: str | None = None) -> list[dict]:
+    from src.shadow import pending_review
+
+    return pending_review(limit=limit, tier=tier)
+
+
+@server.tool(
+    description="Grade one shadow comparison. verdict must be 'acceptable' (the cheap model's "
+                "answer would have been fine) or 'inadequate' (it would not). This is what "
+                "turns collected comparisons into an acceptance rate per complexity tier, and "
+                "therefore into evidence about where cheap routing is safe."
+)
+def record_shadow_verdict(shadow_id: str, verdict: str, scored_by: str = "claude") -> dict:
+    from src.shadow import record_verdict
+
+    try:
+        record_verdict(shadow_id, verdict, scored_by=scored_by)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return {"ok": True, "id": shadow_id, "verdict": verdict}
+
+
+@server.tool(
+    description="Grade ungraded shadow comparisons automatically and record the verdicts. "
+                "Deterministic checks run first (does the cheap answer's code parse, is it "
+                "empty, is it drastically shorter) and are trusted absolutely; where none "
+                "applies, a local model judges blind, with the two answers in randomised "
+                "order. Local-judge verdicts are TRIAGE, not evidence: a small model grading "
+                "a small model. Filter on scored_by before quoting an acceptance rate. Free: "
+                "the judge runs locally."
+)
+def grade_shadow_comparisons(limit: int = 20, tier: str | None = None, use_llm: bool = True) -> dict:
+    from src.judge import grade_pending
+
+    return grade_pending(limit=limit, tier=tier, use_llm=use_llm)
