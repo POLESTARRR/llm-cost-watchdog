@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir libsql==0.1.11
 
 COPY src/ ./src/
 COPY dashboard/ ./dashboard/
+# scripts/ ships too: gateway_demo.py and proof.py are how a deployed instance
+# is verified from the outside, and they are useless sitting only on a laptop.
+COPY scripts/ ./scripts/
 
 EXPOSE 8000
 

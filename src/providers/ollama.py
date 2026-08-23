@@ -29,6 +29,7 @@ and the registry routes on prefix.
 
 import json
 import os
+import time
 from collections.abc import Iterator
 
 import httpx
@@ -47,6 +48,13 @@ _PROBE_TIMEOUT_S = 1.0
 
 MODEL_PREFIX = "ollama/"
 
+# How long a reachability probe is trusted. Without this, is_configured() makes
+# an HTTP call on every routing decision and every /v1/models request. That is
+# tolerable on a laptop where the answer is yes and local; it is a per-request
+# tax on a deployed host where the answer is a fixed no.
+_PROBE_TTL_S = float(os.environ.get("OLLAMA_PROBE_TTL_S", "30"))
+_probe_cache: tuple[float, bool] | None = None
+
 
 class OllamaProvider:
     name = "ollama"
@@ -58,10 +66,18 @@ class OllamaProvider:
         must read as "not available" rather than propagating a connection
         error out of what is supposed to be a preference calculation.
         """
+        global _probe_cache
+
+        now = time.monotonic()
+        if _probe_cache is not None and now - _probe_cache[0] < _PROBE_TTL_S:
+            return _probe_cache[1]
+
         try:
-            return httpx.get(f"{OLLAMA_HOST}/api/tags", timeout=_PROBE_TIMEOUT_S).is_success
+            ok = httpx.get(f"{OLLAMA_HOST}/api/tags", timeout=_PROBE_TIMEOUT_S).is_success
         except httpx.HTTPError:
-            return False
+            ok = False
+        _probe_cache = (now, ok)
+        return ok
 
     def available_models(self) -> list[str]:
         """Model ids pulled on the local server, prefixed to match the registry."""

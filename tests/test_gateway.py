@@ -226,3 +226,39 @@ class TestModelsEndpoint:
     def test_warns_when_unauthenticated_and_open(self, client):
         b = client.get("/v1/models").json()
         assert "warning" in b and "unsafe" in b["warning"]
+
+
+class TestDeployedSafety:
+    """A public gateway with no key spends the owner's quota for strangers.
+
+    The failure this guards against is silent and expensive, so the default
+    flips with the environment instead of staying permissive everywhere.
+    """
+
+    def test_deployed_without_a_key_refuses_completions(self, client, fake_call, monkeypatch):
+        monkeypatch.setenv("PORT", "10000")          # Render/Railway/Fly/Heroku all set this
+        monkeypatch.setattr("src.gateway.GATEWAY_KEY", None)
+        r = client.post("/v1/chat/completions", json=_body())
+        assert r.status_code == 503
+        assert "WATCHDOG_GATEWAY_KEY" in r.json()["detail"]
+
+    def test_deployed_with_a_key_serves_normally(self, client, fake_call, monkeypatch):
+        monkeypatch.setenv("PORT", "10000")
+        monkeypatch.setattr("src.gateway.GATEWAY_KEY", "secret")
+        r = client.post("/v1/chat/completions", json=_body(),
+                        headers={"Authorization": "Bearer secret"})
+        assert r.status_code == 200
+
+    def test_localhost_without_a_key_still_works(self, client, fake_call, monkeypatch):
+        """No key locally is convenience, not a vulnerability."""
+        monkeypatch.delenv("PORT", raising=False)
+        monkeypatch.delenv("TURSO_DATABASE_URL", raising=False)
+        monkeypatch.setattr("src.gateway.GATEWAY_KEY", None)
+        assert client.post("/v1/chat/completions", json=_body()).status_code == 200
+
+    def test_the_dashboard_still_works_when_completions_are_refused(self, client, monkeypatch):
+        """Refusing to spend money must not take the read-only views down."""
+        monkeypatch.setenv("PORT", "10000")
+        monkeypatch.setattr("src.gateway.GATEWAY_KEY", None)
+        assert client.get("/report").status_code == 200
+        assert "DEPLOYED WITHOUT" in client.get("/v1/models").json()["warning"]

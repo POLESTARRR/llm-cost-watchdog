@@ -26,6 +26,16 @@ GENERATE_RESPONSE = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _clear_probe_cache():
+    """The reachability probe is cached for 30s; tests must not inherit it."""
+    import src.providers.ollama as mod
+
+    mod._probe_cache = None
+    yield
+    mod._probe_cache = None
+
+
 @pytest.fixture
 def provider():
     return OllamaProvider()
@@ -208,3 +218,17 @@ class TestErrorMessages:
         msg = _explain_status(exc, "llama3.2:3b")
         assert "Value looks like object" in msg
         assert "pull" not in msg
+
+
+def test_the_probe_is_cached_so_routing_does_not_pay_for_it(provider, monkeypatch):
+    """On a deployed host with no Ollama, an uncached probe is a per-request tax."""
+    calls = []
+
+    def counting_get(url, **kwargs):
+        calls.append(url)
+        return FakeResponse(200, {"models": []})
+
+    monkeypatch.setattr(httpx, "get", counting_get)
+    for _ in range(5):
+        assert provider.is_configured() is True
+    assert len(calls) == 1

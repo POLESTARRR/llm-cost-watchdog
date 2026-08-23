@@ -75,6 +75,29 @@ DEFAULT_PROJECT = os.environ.get("WATCHDOG_GATEWAY_PROJECT", "gateway")
 GATEWAY_KEY = os.environ.get("WATCHDOG_GATEWAY_KEY")
 
 
+def _looks_deployed() -> bool:
+    """Whether this process is running on a PaaS rather than a laptop.
+
+    Render, Railway, Fly and Heroku all inject $PORT; Turso credentials mean a
+    remote database is in use. Either is strong evidence the process is
+    reachable from the internet.
+    """
+    return bool(os.environ.get("PORT") or os.environ.get("TURSO_DATABASE_URL"))
+
+
+def _open_to_the_world() -> bool:
+    """A deployed gateway with no key would let anyone spend the owner's quota.
+
+    Locally, no key means convenience. Publicly it means a stranger can burn
+    your Gemini allowance through your own credentials, and the ledger will
+    faithfully record every cent of it as yours. So the default flips with the
+    environment rather than staying permissive everywhere, the failure this
+    prevents is silent and expensive, and nobody sets a variable they were
+    never warned about.
+    """
+    return _looks_deployed() and not GATEWAY_KEY
+
+
 class ChatMessage(BaseModel):
     role: str
     # `content` is `str | list | None` in the real API (multimodal parts, tool
@@ -184,7 +207,12 @@ def list_models():
     ]
 
     body = {"object": "list", "data": data}
-    if not GATEWAY_KEY:
+    if _open_to_the_world():
+        body["warning"] = (
+            "DEPLOYED WITHOUT WATCHDOG_GATEWAY_KEY: completions are refused (503) until one is "
+            "set, because any caller could otherwise spend the owner's provider quota."
+        )
+    elif not GATEWAY_KEY:
         body["warning"] = (
             "This gateway has no WATCHDOG_GATEWAY_KEY set and will serve any caller that can "
             "reach it. That is fine on localhost and unsafe anywhere else."
@@ -201,6 +229,16 @@ async def chat_completions(
     """The endpoint. Accepts OpenAI's request shape, returns its response shape."""
     from src.utils import call_llm_detailed
 
+    if _open_to_the_world():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "This gateway is deployed without WATCHDOG_GATEWAY_KEY, so it is refusing to "
+                "serve completions. Without a key any caller could spend the owner's provider "
+                "quota through the owner's credentials. Set WATCHDOG_GATEWAY_KEY and redeploy. "
+                "Read-only dashboard endpoints are unaffected."
+            ),
+        )
     if not _authorized(authorization):
         raise HTTPException(status_code=401, detail="invalid api key")
 
