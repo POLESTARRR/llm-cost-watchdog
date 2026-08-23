@@ -118,8 +118,8 @@ Implementation: [`src/analyzer.py`](src/analyzer.py) → `flag_anomalies()`.
 ## 4. How to run locally
 
 ```bash
-git clone <your-repo-url> llm-cost-watchdog
-cd llm-cost-watchdog
+git clone <your-repo-url> llm-cost-gateway
+cd llm-cost-gateway
 
 python3 -m venv venv
 source venv/bin/activate            # Windows: venv\Scripts\activate
@@ -127,6 +127,12 @@ pip install -r requirements.txt
 
 cp .env.example .env                # add whichever provider keys you use
 ```
+
+> **If you move or rename the project directory, rebuild the venv**
+> (`rm -rf venv && python3 -m venv venv && pip install -r requirements.txt`).
+> A virtualenv hardcodes absolute paths in its console scripts, so after a move
+> `venv/bin/uvicorn` fails with a confusing "no such file" naming the *old*
+> path while `venv/bin/python` still works. This bit this repo twice.
 
 You only need keys for providers you actually call. A missing key disables that provider; it doesn't break the tracker.
 
