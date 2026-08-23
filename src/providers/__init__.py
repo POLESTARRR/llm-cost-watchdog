@@ -8,8 +8,16 @@ place that knows which vendor owns which naming scheme.
 from dotenv import load_dotenv
 
 from src.providers.anthropic_provider import AnthropicProvider
-from src.providers.base import LLMResponse, Provider, ProviderError
+from src.providers.base import (
+    LLMResponse,
+    Provider,
+    ProviderError,
+    StreamChunk,
+    supports_streaming,
+    supports_tools,
+)
 from src.providers.gemini import GeminiProvider
+from src.providers.ollama import OllamaProvider
 from src.providers.openai_provider import OpenAIProvider
 
 # Load .env here too, not just in utils, provider credential checks must give
@@ -20,10 +28,18 @@ _PROVIDERS: dict[str, Provider] = {
     "google": GeminiProvider(),
     "anthropic": AnthropicProvider(),
     "openai": OpenAIProvider(),
+    "ollama": OllamaProvider(),
 }
 
 # Ordered longest-prefix-first so "gpt-oss" can't shadow "gpt-" style entries.
+#
+# `ollama/` is first and is the only *namespaced* prefix here, deliberately.
+# Local servers host models whose bare names already belong to hosted vendors
+# (Ollama serves `gemma`, so does Google), so local ids are explicitly
+# qualified rather than guessed at. `ollama/gemma3` and `gemma-3` then route
+# to different providers without either rule needing to know about the other.
 _PREFIX_ROUTES: list[tuple[str, str]] = [
+    ("ollama/", "ollama"),
     ("gemini", "google"),
     ("gemma", "google"),
     ("claude", "anthropic"),
@@ -59,6 +75,9 @@ __all__ = [
     "LLMResponse",
     "Provider",
     "ProviderError",
+    "StreamChunk",
+    "supports_streaming",
+    "supports_tools",
     "configured_providers",
     "get_provider",
     "infer_provider",

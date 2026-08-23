@@ -65,6 +65,23 @@ DEFAULT_MODEL = "gemini-flash-lite-latest"
 # unknown model, we'd rather log an approximate cost than lose the event.
 _FALLBACK_RATES = {"input": 0.001, "cached_input": 0.0001, "output": 0.005}
 
+# --- Locally-hosted models ----------------------------------------------
+#
+# Models served from a process on your own machine have no per-token charge.
+# Not "very cheap", not "approximately zero", genuinely zero: no invoice
+# exists. They are matched by prefix rather than enumerated, see get_rates().
+#
+# Their real cost is latency and the hardware, both of which the ledger already
+# records per call. `subscription_roi`-style reporting should treat a local call
+# the way it treats a flat-fee one: real tokens, real work, no money moved.
+LOCAL_MODEL_PREFIXES = ("ollama/",)
+_FREE_RATES = {"input": 0.0, "cached_input": 0.0, "output": 0.0}
+
+
+def is_local_model(model: str) -> bool:
+    """True if `model` runs on hardware you own and bills nothing per token."""
+    return model.startswith(LOCAL_MODEL_PREFIXES)
+
 # --- Provider-specific billing rules ------------------------------------
 #
 # Two rules that most cost dashboards silently get wrong. Both are OpenAI
@@ -108,7 +125,18 @@ SERVICE_TIER_MULTIPLIERS = {"standard": 1.0, "batch": 0.5, "priority": 1.0}
 
 
 def get_rates(model: str) -> dict[str, float]:
-    """Return the per-1k rates for `model`, falling back rather than raising."""
+    """Return the per-1k rates for `model`, falling back rather than raising.
+
+    Locally-hosted models are zero-rated by *prefix*, not by table entry. Every
+    other model here has to be enumerated because its price is a fact about a
+    vendor's price list; a local model's price is a fact about where it runs,
+    so `ollama/anything-at-all` is free without an edit. Without this, an
+    unlisted local model would hit `_FALLBACK_RATES` and be reported as costing
+    real money, which is the exact failure mode the provenance system exists to
+    prevent, a confident number for spend that never happened.
+    """
+    if model.startswith(LOCAL_MODEL_PREFIXES):
+        return _FREE_RATES
     return PRICING_TABLE.get(model, _FALLBACK_RATES)
 
 
