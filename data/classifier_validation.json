@@ -1,48 +1,48 @@
 {
-  "generated_at": "2026-08-24T13:07:15+00:00",
-  "n_prompts": 1070,
+  "generated_at": "2026-08-24T15:38:22+00:00",
+  "n_prompts": 1079,
   "n_transcripts": 86,
   "tiers": {
     "trivial": {
-      "n": 19,
-      "median_out": 2794,
-      "mean_out": 6975.105263157895,
+      "n": 154,
+      "median_out": 1716.0,
+      "mean_out": 15037.792207792209,
       "median_steps": 3.0,
-      "mean_steps": 10.368421052631579,
-      "share_percent": 1.8
+      "mean_steps": 17.493506493506494,
+      "share_percent": 14.3
     },
     "moderate": {
-      "n": 952,
-      "median_out": 5280.0,
-      "mean_out": 16675.878151260506,
-      "median_steps": 6.5,
-      "mean_steps": 16.80252100840336,
-      "share_percent": 89.0
+      "n": 614,
+      "median_out": 5573.5,
+      "mean_out": 16779.224755700325,
+      "median_steps": 7.0,
+      "mean_steps": 17.14169381107492,
+      "share_percent": 56.9
     },
     "complex": {
-      "n": 99,
-      "median_out": 13533,
-      "mean_out": 29660.91919191919,
-      "median_steps": 9.0,
-      "mean_steps": 23.717171717171716,
-      "share_percent": 9.3
+      "n": 311,
+      "median_out": 8450,
+      "mean_out": 20971.655948553056,
+      "median_steps": 8.0,
+      "mean_steps": 17.89710610932476,
+      "share_percent": 28.8
     }
   },
   "ranking": {
-    "lift_output": 4.8,
-    "lift_steps": 3.0,
+    "lift_output": 4.9,
+    "lift_steps": 2.7,
     "passes": true
   },
   "routing": {
-    "cheap_tier_share_percent": 1.8,
-    "middle_tier_share_percent": 89.0,
+    "cheap_tier_share_percent": 14.3,
+    "middle_tier_share_percent": 56.9,
     "passes": false
   },
   "length_rule_evidence": {
-    "n_borderline": 498,
-    "borderline_share_percent": 46.5,
-    "n_ran_20_plus_steps": 94,
-    "heavy_share_percent": 18.9,
+    "n_borderline": 504,
+    "borderline_share_percent": 46.7,
+    "n_ran_20_plus_steps": 97,
+    "heavy_share_percent": 19.2,
     "worst": [
       {
         "prompt": "Please run this application for me.",
@@ -60,6 +60,20 @@
         "output_tokens": 102803
       }
     ]
+  },
+  "words_only": {
+    "moderate": {
+      "n": 961,
+      "share_percent": 89.1
+    },
+    "complex": {
+      "n": 99,
+      "share_percent": 9.2
+    },
+    "trivial": {
+      "n": 19,
+      "share_percent": 1.8
+    }
   },
   "verdict": "ranks correctly but is far too conservative to route on"
 }

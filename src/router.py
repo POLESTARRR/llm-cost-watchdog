@@ -451,11 +451,19 @@ def _rank_by_complexity(
         pick = ordered[tier_index("moderate", len(ordered))]
         return pick, "no prompt supplied; defaulted to the middle of the group", None
 
-    verdict = classify(prompt)
+    # `in_tokens` is the size of the whole request, conversation history
+    # included, so it is exactly the context measurement the classifier wants.
+    # It was already being threaded through here to price the candidates and was
+    # never shown to the thing deciding difficulty, which is why the cheap tier
+    # was reachable on 1.8% of real traffic: the classifier could only read the
+    # words, and on measured data the words are the half that does not carry the
+    # request. Passed as None when unknown, which keeps word-only behaviour.
+    verdict = classify(prompt, context_tokens=in_tokens or None)
     pick = ordered[tier_index(verdict.tier, len(ordered))]
     basis = (
-        f"prompt classified {verdict.tier} (score {verdict.score:+d}) -> "
-        f"tier {tier_index(verdict.tier, len(ordered)) + 1} of {len(ordered)} by price"
+        f"classified {verdict.tier} (score {verdict.score:+d}"
+        + (f", {in_tokens:,} tokens of context" if in_tokens else "")
+        + f") -> tier {tier_index(verdict.tier, len(ordered)) + 1} of {len(ordered)} by price"
     )
     return pick, basis, verdict.as_dict()
 

@@ -104,3 +104,56 @@ class TestTierIndex:
         for n in range(1, 6):
             for tier in (TIER_TRIVIAL, TIER_MODERATE, TIER_COMPLEX):
                 assert 0 <= tier_index(tier, n) < n
+
+
+# --- context size: the signal the words cannot carry ----------------------
+
+
+def test_same_words_route_differently_by_how_much_there_is_to_read():
+    """The point of the whole context signal, in one assertion.
+
+    "fix the login bug" is three words either way. In a fresh session it is a
+    small job; four hundred thousand tokens deep it is a request to change
+    something inside a system the model has to read first. Measured traffic says
+    the second case runs far longer, and nothing in the wording says so.
+    """
+    from src.complexity import classify
+
+    early = classify("fix the login bug", context_tokens=1_000)
+    late = classify("fix the login bug", context_tokens=600_000)
+
+    assert early.tier == "trivial"
+    assert late.tier == "complex"
+    assert late.score > early.score
+
+
+def test_small_context_never_demotes_a_hard_request():
+    """Regression: the fallback test caught this the day it was introduced.
+
+    A small conversation is weak evidence of an easy request. It must not cancel
+    strong evidence of a hard one, or the first architectural question of a
+    session gets sent to a mid-tier model because nothing had been said yet.
+    """
+    from src.complexity import classify
+
+    v = classify(
+        "Design a migration strategy and explain the trade-offs.",
+        context_tokens=1_000,
+    )
+    assert v.tier == "complex"
+    assert any("no discount" in s for s in v.signals)
+
+
+def test_large_context_escalates_even_with_no_hard_words():
+    from src.complexity import classify
+
+    v = classify("carry on", context_tokens=500_000)
+    assert v.tier == "complex"
+
+
+def test_context_is_optional_and_omitting_it_keeps_word_only_behaviour():
+    from src.complexity import classify
+
+    assert classify("reformat this JSON").tier == classify(
+        "reformat this JSON", context_tokens=None
+    ).tier

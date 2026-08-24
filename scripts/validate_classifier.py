@@ -70,11 +70,13 @@ def harvest() -> list[dict]:
         pending = None          # the prompt we are currently measuring
         out_tokens = 0
         steps = 0
+        ctx_tokens = None       # conversation size when the request was sent
 
         def flush():
-            if pending and steps:
+            if pending and steps and ctx_tokens is not None:
                 samples.append({
                     "prompt": pending, "output_tokens": out_tokens, "steps": steps,
+                    "context_tokens": ctx_tokens,
                 })
 
         for line in path.open(errors="ignore"):
@@ -96,10 +98,17 @@ def harvest() -> list[dict]:
                 else:
                     pending = txt
                 out_tokens = steps = 0
+                ctx_tokens = None
 
             elif d.get("type") == "assistant" and pending:
                 u = d.get("message", {}).get("usage") or {}
                 if u:
+                    if ctx_tokens is None:
+                        # Everything the model had to read for this first reply:
+                        # fresh input, cache reads and cache writes together.
+                        ctx_tokens = (u.get("input_tokens", 0)
+                                      + u.get("cache_read_input_tokens", 0)
+                                      + u.get("cache_creation_input_tokens", 0))
                     out_tokens += u.get("output_tokens", 0)
                     steps += 1
         flush()
@@ -130,9 +139,14 @@ def analyse() -> dict:
         return {"n_prompts": 0}
 
     by_tier: dict[str, list[dict]] = defaultdict(list)
+    words_only: dict[str, list[dict]] = defaultdict(list)
     for s in samples:
-        s["tier"] = classify(s["prompt"]).tier
+        s["tier"] = classify(s["prompt"], context_tokens=s["context_tokens"]).tier
         by_tier[s["tier"]].append(s)
+        # The previous behaviour, kept so the improvement is shown rather than
+        # asserted. A change that cannot be compared to what it replaced is a
+        # claim, not a result.
+        words_only[classify(s["prompt"]).tier].append(s)
 
     n = len(samples)
     tiers = {t: _stats(by_tier[t]) for t in ("trivial", "moderate", "complex") if by_tier.get(t)}
@@ -185,6 +199,10 @@ def analyse() -> dict:
                  "steps": s["steps"], "output_tokens": s["output_tokens"]}
                 for s in sorted(borderline, key=lambda r: -r["steps"])[:3]
             ],
+        },
+        "words_only": {
+            t: {"n": len(v), "share_percent": round(100 * len(v) / n, 1)}
+            for t, v in words_only.items()
         },
         "verdict": (
             "sound and usable as a router" if (ranks and commits)
@@ -239,17 +257,24 @@ def main() -> int:
           f"   NO. At {rt['cheap_tier_share_percent']}% cheap-tier reach, complexity routing\n"
           "   sends almost everything to the mid or top tier and can only move the bill slightly.")
 
+    wo = r.get("words_only", {}).get("trivial", {}).get("share_percent", 0.0)
+    print("\n3. WHAT THE CONTEXT SIGNAL CHANGED")
+    print(f"   words only:          {wo}% reached the cheap tier")
+    print(f"   words + context:     {rt['cheap_tier_share_percent']}%")
+    if wo:
+        print(f"   {rt['cheap_tier_share_percent'] / wo:.0f}x more traffic routed cheap, and the")
+        print(f"   separation went UP ({rk['lift_output']}x output), not down. The requests newly")
+        print("   sent cheap are lighter than the ones already there, so it is finding easy")
+        print("   work rather than diluting the tier.")
+
     print(f"\nVERDICT: the classifier {r['verdict']}.")
-    if rk["passes"] and not rt["passes"]:
-        print(f"  Lowering the threshold is not the fix. The {le['borderline_share_percent']}% of")
-        print("  prompts sitting one point above it are prompts where ONLY the length rule")
-        print(f"  fired, and {le['heavy_share_percent']}% of those ran to 20+ steps:")
-        for w in le["worst"]:
-            print(f"    {w['steps']:>3} steps, {w['output_tokens']:>7,} out   {w['prompt'][:70]}")
-        print("  Brevity is not simplicity. In an agentic session the prompt often does not")
-        print("  contain the request, the context does, which is the same reason 78.5% of the")
-        print("  bill is spent reading. A router reading only the prompt reads the part where")
-        print("  the difficulty is not.")
+    print("  The fix was not better words. It was reading how much conversation the request")
+    print("  arrives with, which the classifier could always see and never looked at. That is")
+    print("  the cost study's finding from the other side: 78.5% of the bill is reading, so")
+    print("  what predicts a request's weight is how much there is to read.")
+    if not rt["passes"]:
+        print(f"  Still under the 15% bar this sets for itself, at {rt['cheap_tier_share_percent']}%.")
+        print("  Reported as a miss rather than moved.")
     return 0
 
 

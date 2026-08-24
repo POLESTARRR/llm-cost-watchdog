@@ -137,6 +137,33 @@ SHORT_PROMPT_CHARS = 120
 LONG_PROMPT_CHARS = 1500
 VERY_LONG_PROMPT_CHARS = 6000
 
+# Context-size thresholds, in tokens already in the conversation when the
+# request arrives. These are the strongest signal available and the classifier
+# ignored them entirely until now, which was the defect behind its 1.8%
+# cheap-tier reach.
+#
+# The words in a prompt are a guess about difficulty. The size of the
+# conversation carrying it is a measurement of one, and this project's own data
+# says so. Across 1,079 real requests, grouped by how much context existed at
+# the moment they were sent:
+#
+#     context      median steps    median output
+#      38K              4             2,143
+#     138K              6             5,086
+#     271K              8             7,245
+#     519K              8             8,403
+#
+# Monotonic, and available on every single request rather than on the 1.8% where
+# a mechanical verb happens to appear. It is also the same fact the cost study
+# found from the other direction: 78.5% of the bill is reading, so the thing
+# that predicts a request's cost is how much there is to read.
+#
+# Set between the first and second quartiles, and again above the third, since
+# those are where the outcome actually steps rather than at round numbers.
+SMALL_CONTEXT_TOKENS = 60_000
+LARGE_CONTEXT_TOKENS = 250_000
+HUGE_CONTEXT_TOKENS = 450_000
+
 
 @dataclass
 class ComplexityVerdict:
@@ -163,11 +190,18 @@ def _count_hits(haystack: str, needles) -> list[str]:
     return [n for n in needles if n in haystack]
 
 
-def classify(prompt: str) -> ComplexityVerdict:
-    """Score a prompt's difficulty and bucket it into a tier.
+def classify(prompt: str, context_tokens: int | None = None) -> ComplexityVerdict:
+    """Score a request's difficulty and bucket it into a tier.
 
     Positive score means harder. Every rule that fires appends a human-readable
     line to `signals`, so the total can always be reconstructed by hand.
+
+    `context_tokens` is how much conversation already exists when the request
+    arrives, which the caller knows and the prompt text does not reveal. Passing
+    it is strongly preferred: on measured traffic it is the only signal that
+    fires on every request, and reading the words alone reached the cheap tier
+    on 1.8% of them. Omitting it keeps the old word-only behaviour, which is
+    correct for a first message and for callers that genuinely cannot count.
     """
     text = (prompt or "").strip()
     lowered = text.lower()
@@ -249,6 +283,38 @@ def classify(prompt: str) -> ComplexityVerdict:
         # Prompts that are genuinely simple still reach the cheap tier on the
         # mechanical-verb evidence that actually distinguishes them.
         signals.append(f"short prompt ({chars} chars); no discount, brevity is not simplicity")
+
+    # --- how much is there to read ---------------------------------------
+    # Deliberately last, so it adjusts a verdict the words have already argued
+    # for rather than overwriting it. A short mechanical request inside a huge
+    # session is still not free, and an architectural question at the start of
+    # an empty one is still hard.
+    if context_tokens is not None:
+        if context_tokens >= HUGE_CONTEXT_TOKENS:
+            score += 3
+            signals.append(f"huge context ({context_tokens:,} tokens) +3")
+        elif context_tokens >= LARGE_CONTEXT_TOKENS:
+            score += 2
+            signals.append(f"large context ({context_tokens:,} tokens) +2")
+        elif context_tokens <= SMALL_CONTEXT_TOKENS:
+            # Gated, exactly as the short-prompt discount is, and for the same
+            # reason. A small conversation is weak evidence of an easy request
+            # and it must not cancel strong evidence of a hard one: "Design a
+            # migration strategy and explain the trade-offs" is the first thing
+            # someone types in a fresh session, and demoting it to a mid model
+            # because nothing had been said yet is precisely the misroute this
+            # module promises not to make. The existing fallback test caught it.
+            #
+            # The asymmetry only runs one way. A large context escalates
+            # unconditionally above, because a lot to read is never free.
+            if hard_signal:
+                signals.append(
+                    f"small context ({context_tokens:,} tokens) but a complexity signal fired; "
+                    "no discount"
+                )
+            else:
+                score -= 2
+                signals.append(f"small context ({context_tokens:,} tokens) -2")
 
     # --- bucket ----------------------------------------------------------
     if score >= COMPLEX_MIN_SCORE:

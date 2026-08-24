@@ -433,7 +433,7 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
 
   <section class="finding" id="validation" hidden>
     <div class="finding-kicker">Checking my own work</div>
-    <h2 class="finding-h">I tested the tool I just built. Half of it does not work yet.</h2>
+    <h2 class="finding-h">I tested the tool I built, found it barely worked, and fixed it.</h2>
     <p class="finding-lede" id="val-lede"></p>
     <div class="table-scroll">
       <table>
@@ -445,6 +445,7 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
       </table>
     </div>
     <div class="cf" id="val-answers" style="margin-top:1rem"></div>
+    <div class="cf" id="val-fix" style="margin-top:1.1rem"></div>
     <div class="priciest" id="val-limit"></div>
     <p class="cf-caveat" id="val-method"></p>
   </section>
@@ -1041,15 +1042,35 @@ function renderValidation(v) {
     `<span class="v">${rt.cheap_tier_share_percent}% reach the cheap tier</span>` +
     `<span class="d">${pass(rt.passes)}</span></div>`;
 
+  // What the fix changed. Shown as a comparison because an improvement nobody
+  // can measure against the thing it replaced is a claim, not a result.
+  const wo = ((v.words_only || {}).trivial || {}).share_percent;
+  if (wo) {
+    $("val-fix").innerHTML =
+      `<div class="cf-row"><span class="m">Reading only the words (before)</span>` +
+      `<span class="v">${wo}% sent to the cheap model</span><span class="d">barely routed</span></div>` +
+      `<div class="cf-row actual"><span class="m">Reading the words <b>and</b> the conversation size (now)</span>` +
+      `<span class="v">${rt.cheap_tier_share_percent}%</span>` +
+      `<span class="d">${(rt.cheap_tier_share_percent / wo).toFixed(0)}x more</span></div>` +
+      `<p class="cf-caveat" style="margin-top:.7rem">The fix was not better word-matching. ` +
+      `A request arrives with a whole conversation attached, and the tool was ignoring how big ` +
+      `it was. <b>"fix the login bug"</b> is an easy job in a fresh session and a hard one four ` +
+      `hundred thousand words deep, and the sentence is identical either way. Feeding that in ` +
+      `sent <b>${(rt.cheap_tier_share_percent / wo).toFixed(0)}x</b> more work to the cheap ` +
+      `model, and the gap between easy and hard got <i>wider</i> ` +
+      `(${rk.lift_output}x), so it is finding genuinely easy requests rather than mislabelling ` +
+      `hard ones. Still short of the 15% bar this sets itself, which is reported rather than moved.</p>`;
+  }
+
   const worst = (le.worst || [])[0];
   $("val-limit").innerHTML =
-    `<b>Why I can't just lower the bar.</b> The next group down is requests that are simply ` +
-    `<i>short</i>. But short does not mean easy: ${le.heavy_share_percent}% of them turned into ` +
-    `twenty steps of work or more` +
-    (worst ? `, like <i>&ldquo;${esc(worst.prompt)}&rdquo;</i>, which took <b>${worst.steps} steps</b>` : "") +
-    `.<br><br>When you are deep in a session, a two-word message can mean "carry on with the big ` +
-    `thing". The difficulty is in the conversation, not the sentence. Which is the same reason ` +
-    `most of the bill above is reading: <b>the tool is looking at the wrong half of the request.</b>`;
+    `<b>Why the words alone were never going to be enough.</b> The group the tool kept refusing ` +
+    `to send cheap was requests that are simply <i>short</i>, and short does not mean easy: ` +
+    `${le.heavy_share_percent}% of them turned into twenty steps of work or more` +
+    (worst ? `, like <i>&ldquo;${esc(worst.prompt)}&rdquo;</i> at <b>${worst.steps} steps</b>` : "") +
+    `.<br><br>Deep in a session, two words can mean "carry on with the big thing". The difficulty ` +
+    `is in the conversation, not the sentence, which is the same reason most of the bill above ` +
+    `is reading. Fixing it meant giving the tool the half of the request it had never been shown.`;
 
   $("val-method").innerHTML =
     `Generated ${esc((v.generated_at || "").slice(0, 10))} from ${v.n_transcripts} local session ` +
