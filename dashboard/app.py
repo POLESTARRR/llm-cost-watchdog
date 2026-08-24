@@ -8,6 +8,7 @@ The MCP server is the core deliverable; this exists so the same data can be
 inspected in a browser without Claude Desktop.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -327,6 +328,31 @@ def findings_endpoint():
         counterfactual(m) for m in ("claude-sonnet-5", "claude-haiku-4-5")
     ]
     return data
+
+
+@app.get("/validation")
+def validation_endpoint() -> dict:
+    """Whether the complexity classifier predicts real work. A dated artifact.
+
+    Not computed on request, unlike every other endpoint here. The evidence is
+    Claude Code transcripts under ~/.claude/projects, which exist on the machine
+    that did the work and nowhere else; a deployed host has no access to them
+    and never will. So the analysis runs locally and ships its result:
+
+        venv/bin/python scripts/validate_classifier.py --json data/classifier_validation.json
+
+    That makes it the one number on this site that can go stale, which is why it
+    carries `generated_at` and why the page prints that date next to it. Missing
+    file is a normal state (a fresh clone, someone else's deployment) and is
+    reported as such rather than as an error.
+    """
+    path = Path(__file__).resolve().parent.parent / "data" / "classifier_validation.json"
+    if not path.exists():
+        return {"available": False, "reason": "No validation has been run for this deployment."}
+    try:
+        return {"available": True, **json.loads(path.read_text())}
+    except (OSError, ValueError) as exc:
+        return {"available": False, "reason": f"Validation artifact unreadable: {exc}"}
 
 
 @app.get("/complexity")

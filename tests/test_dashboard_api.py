@@ -467,3 +467,38 @@ def test_shadow_endpoint_is_reachable(client):
 def test_gateway_is_mounted_on_the_same_app(client):
     """One process serves the proxy and the UI that reads what it recorded."""
     assert client.get("/v1/models").status_code == 200
+
+
+# --- /validation (dated classifier-validation artifact) --------------------
+
+
+def test_validation_reports_the_shipped_artifact(client):
+    """The published result must carry both verdicts and the date it was made."""
+    body = client.get("/validation").json()
+    if not body.get("available"):
+        # A clone without the artifact is a supported state, not a failure.
+        assert "reason" in body
+        return
+
+    assert body["n_prompts"] > 0
+    assert body["generated_at"]
+    # Both questions are always answered. Ranking well is not permitted to stand
+    # in for routing well, which is the distinction the whole analysis exists on.
+    assert "passes" in body["ranking"]
+    assert "passes" in body["routing"]
+    assert set(body["tiers"]) <= {"trivial", "moderate", "complex"}
+
+
+def test_validation_tier_shares_are_a_partition(client):
+    body = client.get("/validation").json()
+    if not body.get("available"):
+        return
+    total = sum(t["share_percent"] for t in body["tiers"].values())
+    assert total == pytest.approx(100.0, abs=0.5)
+
+
+def test_index_hides_validation_until_it_loads(client):
+    """The section must ship hidden: an empty study is worse than no study."""
+    html = client.get("/").text
+    assert 'id="validation"' in html
+    assert 'id="validation" hidden' in html

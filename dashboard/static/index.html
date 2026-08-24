@@ -408,6 +408,24 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
     </div>
   </div>
 
+  <section class="finding" id="validation" hidden>
+    <div class="finding-kicker">Does the router actually work?</div>
+    <h2 class="finding-h">I tested it against ground truth. It ranks correctly and routes badly.</h2>
+    <p class="finding-lede" id="val-lede"></p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Tier the classifier assigned</th><th class="num">Share of prompts</th>
+          <th class="num">Median output</th><th class="num">Median steps</th>
+        </tr></thead>
+        <tbody id="val-tiers"></tbody>
+      </table>
+    </div>
+    <div class="cf" id="val-answers" style="margin-top:1rem"></div>
+    <div class="priciest" id="val-limit"></div>
+    <p class="cf-caveat" id="val-method"></p>
+  </section>
+
   <div class="section-intro" id="ledger-intro">
     <h2>The ledger underneath</h2>
     <p>Both things live in one table. <b>Measured build work</b> is the thirteen
@@ -948,6 +966,65 @@ load().catch(showError);
 // A ledger with no measured build work in it (a fresh install, someone else's
 // deployment) has no findings to state, so the whole study is removed rather
 // than rendered as a row of zeroes claiming a study that never happened.
+// The classifier validation. A dated artifact rather than a live computation,
+// because its evidence (session transcripts) exists only on the machine that
+// did the work. Absent is a normal state and the section simply stays hidden.
+function renderValidation(v) {
+  const pass = (ok) => ok
+    ? `<span style="color:var(--status-good);font-weight:700">YES</span>`
+    : `<span style="color:var(--status-critical);font-weight:700">NO</span>`;
+  const t = v.tiers || {};
+  const rk = v.ranking, rt = v.routing, le = v.length_rule_evidence;
+
+  $("val-lede").innerHTML =
+    `The router is this project's central claim and nothing had ever checked it. So I did, ` +
+    `against <b>${v.n_prompts.toLocaleString()} real prompts</b> from ${v.n_transcripts} of my own ` +
+    `sessions, where the outcome is already recorded: how much the agent then generated, and how ` +
+    `many steps it took before handing back. Both were measured by a system that had never heard ` +
+    `of this classifier. Turn <i>cost</i> is deliberately not the outcome, because in an agentic ` +
+    `session it is dominated by accumulated context and would have paid the classifier for ` +
+    `nothing more than guessing which turns came late.`;
+
+  $("val-tiers").innerHTML = ["trivial", "moderate", "complex"].map(k => {
+    const r = t[k];
+    if (!r) return "";
+    return `<tr><td>${esc(k)}</td><td class="num">${r.share_percent}%</td>` +
+           `<td class="num">${Math.round(r.median_out).toLocaleString()}</td>` +
+           `<td class="num">${r.median_steps.toFixed(0)}</td></tr>`;
+  }).join("");
+
+  $("val-answers").innerHTML =
+    `<div class="cf-row"><span class="m">Does the ordering track real work?</span>` +
+    `<span class="v">${rk.lift_output}x output, ${rk.lift_steps}x steps</span>` +
+    `<span class="d">${pass(rk.passes)}</span></div>` +
+    `<div class="cf-row"><span class="m">Does it commit hard enough to route on?</span>` +
+    `<span class="v">${rt.cheap_tier_share_percent}% reach the cheap tier</span>` +
+    `<span class="d">${pass(rt.passes)}</span></div>`;
+
+  const worst = (le.worst || [])[0];
+  $("val-limit").innerHTML =
+    `<b>The obvious fix does not work.</b> Lowering the bar would sweep in the ` +
+    `${le.borderline_share_percent}% of prompts that are merely <i>short</i>, where no other signal ` +
+    `fired at all. ${le.heavy_share_percent}% of those ran to twenty steps or more` +
+    (worst ? `, including <i>"${esc(worst.prompt)}"</i> at <b>${worst.steps} steps</b>` : "") +
+    `. Brevity is not simplicity: in an agentic session the prompt often does not contain the ` +
+    `request, the context does. Which is the same reason ${'78.5'}% of the bill above is spent ` +
+    `reading. <b>A router that reads only the prompt is reading the part where the difficulty ` +
+    `is not</b>, and that is a limit of the idea rather than of this implementation.`;
+
+  $("val-method").innerHTML =
+    `Generated ${esc((v.generated_at || "").slice(0, 10))} from ${v.n_transcripts} local session ` +
+    `transcripts, which is why this figure is dated while everything else on this page is computed ` +
+    `per request: the evidence lives on one machine and cannot be recomputed by the server. ` +
+    `Reproduce with <code>venv/bin/python scripts/validate_classifier.py</code>.`;
+
+  $("validation").hidden = false;
+}
+
+getJSON("/validation")
+  .then(v => { if (v && v.available && v.n_prompts) renderValidation(v); })
+  .catch(() => {});
+
 getJSON("/findings").then(f => {
   if (!f.headline || !f.headline.turns) {
     document.querySelectorAll(".study, .finding").forEach(el => el.remove());

@@ -1,0 +1,65 @@
+{
+  "generated_at": "2026-08-24T13:07:15+00:00",
+  "n_prompts": 1070,
+  "n_transcripts": 86,
+  "tiers": {
+    "trivial": {
+      "n": 19,
+      "median_out": 2794,
+      "mean_out": 6975.105263157895,
+      "median_steps": 3.0,
+      "mean_steps": 10.368421052631579,
+      "share_percent": 1.8
+    },
+    "moderate": {
+      "n": 952,
+      "median_out": 5280.0,
+      "mean_out": 16675.878151260506,
+      "median_steps": 6.5,
+      "mean_steps": 16.80252100840336,
+      "share_percent": 89.0
+    },
+    "complex": {
+      "n": 99,
+      "median_out": 13533,
+      "mean_out": 29660.91919191919,
+      "median_steps": 9.0,
+      "mean_steps": 23.717171717171716,
+      "share_percent": 9.3
+    }
+  },
+  "ranking": {
+    "lift_output": 4.8,
+    "lift_steps": 3.0,
+    "passes": true
+  },
+  "routing": {
+    "cheap_tier_share_percent": 1.8,
+    "middle_tier_share_percent": 89.0,
+    "passes": false
+  },
+  "length_rule_evidence": {
+    "n_borderline": 498,
+    "borderline_share_percent": 46.5,
+    "n_ran_20_plus_steps": 94,
+    "heavy_share_percent": 18.9,
+    "worst": [
+      {
+        "prompt": "Please run this application for me.",
+        "steps": 216,
+        "output_tokens": 57017
+      },
+      {
+        "prompt": "are you able to see your screen on the left? Start from here only, don't forget your memory.",
+        "steps": 197,
+        "output_tokens": 276220
+      },
+      {
+        "prompt": "goal<I want to make it run it on the internet and deploy it And I want the whole free process. Now start makin",
+        "steps": 171,
+        "output_tokens": 102803
+      }
+    ]
+  },
+  "verdict": "ranks correctly but is far too conservative to route on"
+}

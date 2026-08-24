@@ -30,6 +30,8 @@ This is a validation, not a demonstration. A null result is reported as a null
 result: see the verdict at the bottom, which is computed, not written in advance.
 """
 
+import argparse
+import datetime as _dt
 import json
 import pathlib
 import statistics
@@ -38,7 +40,7 @@ from collections import defaultdict
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from src.complexity import classify  # noqa: E402
+from src.complexity import SHORT_PROMPT_CHARS, classify  # noqa: E402
 
 TRANSCRIPTS = pathlib.Path.home() / ".claude" / "projects"
 
@@ -104,91 +106,150 @@ def harvest() -> list[dict]:
     return samples
 
 
-def summarise(rows: list[float]) -> tuple[float, float]:
-    s = sorted(rows)
-    return statistics.median(s), statistics.mean(s)
+def _stats(rows: list[dict]) -> dict:
+    out = [r["output_tokens"] for r in rows]
+    steps = [float(r["steps"]) for r in rows]
+    return {
+        "n": len(rows),
+        "median_out": statistics.median(out),
+        "mean_out": statistics.mean(out),
+        "median_steps": statistics.median(steps),
+        "mean_steps": statistics.mean(steps),
+    }
 
 
-def main() -> int:
+def analyse() -> dict:
+    """Run the whole validation and return it as data.
+
+    Returns a structure rather than printing, so the published artifact and the
+    terminal report are the same computation. A page quoting one number while a
+    script prints another is the drift this project has already been bitten by.
+    """
     samples = harvest()
     if not samples:
-        print("No transcripts found under", TRANSCRIPTS)
-        return 1
+        return {"n_prompts": 0}
 
     by_tier: dict[str, list[dict]] = defaultdict(list)
     for s in samples:
         s["tier"] = classify(s["prompt"]).tier
         by_tier[s["tier"]].append(s)
 
-    print(f"\n{len(samples):,} genuine human prompts recovered from "
-          f"{len(list(TRANSCRIPTS.rglob('*.jsonl')))} transcripts.")
-    print("Outcome measured: what the agent actually did next.\n")
+    n = len(samples)
+    tiers = {t: _stats(by_tier[t]) for t in ("trivial", "moderate", "complex") if by_tier.get(t)}
+    for t, v in tiers.items():
+        v["share_percent"] = round(100 * v["n"] / n, 1)
 
-    print(f"{'tier':10}{'prompts':>9}{'median out':>12}{'mean out':>10}"
-          f"{'median steps':>14}{'mean steps':>12}")
-    order = ["trivial", "moderate", "complex"]
-    stats = {}
-    for tier in order:
-        rows = by_tier.get(tier, [])
-        if not rows:
-            print(f"{tier:10}{0:>9}{'-':>12}{'-':>10}{'-':>14}{'-':>12}")
-            continue
-        mo, ao = summarise([r["output_tokens"] for r in rows])
-        ms, as_ = summarise([float(r["steps"]) for r in rows])
-        stats[tier] = {"median_out": mo, "mean_out": ao, "median_steps": ms, "mean_steps": as_,
-                       "n": len(rows)}
-        print(f"{tier:10}{len(rows):>9}{mo:>12,.0f}{ao:>10,.0f}{ms:>14.1f}{as_:>12.1f}")
+    t, c = tiers.get("trivial"), tiers.get("complex")
+    lift_out = (c["median_out"] / t["median_out"]) if (t and c and t["median_out"]) else 0.0
+    lift_steps = (c["median_steps"] / t["median_steps"]) if (t and c and t["median_steps"]) else 0.0
+    ranks = lift_out >= 1.5 and lift_steps >= 1.3
+    cheap_share = tiers.get("trivial", {}).get("share_percent", 0.0)
+    commits = cheap_share >= 15
 
-    # Two questions, and passing the first says nothing about the second. A
-    # classifier can rank perfectly and still be useless for routing if it
-    # almost never commits to a tier, so both are reported and neither is
-    # allowed to stand in for the other.
-    print()
-    if "trivial" not in stats or "complex" not in stats:
-        print("VERDICT: not enough coverage across tiers to judge.")
+    # The evidence that the obvious fix (lower the threshold) is unavailable.
+    #
+    # Identified as "short, and nothing else fired" rather than by score, on
+    # purpose. This group scored -1 under the old length discount and was the
+    # reason 47% of traffic sat one point above the cheap tier. Removing that
+    # discount moved the same prompts to 0, so selecting on score == -1 would now
+    # return almost nothing and make the finding look like it had evaporated.
+    # The population is what matters, not the number that used to label it.
+    borderline = [
+        s for s in samples
+        if len(s["prompt"]) <= SHORT_PROMPT_CHARS and classify(s["prompt"]).score == 0
+    ]
+    heavy = [s for s in borderline if s["steps"] >= 20]
+
+    return {
+        "generated_at": _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat(),
+        "n_prompts": n,
+        "n_transcripts": len(list(TRANSCRIPTS.rglob("*.jsonl"))),
+        "tiers": tiers,
+        "ranking": {
+            "lift_output": round(lift_out, 1),
+            "lift_steps": round(lift_steps, 1),
+            "passes": ranks,
+        },
+        "routing": {
+            "cheap_tier_share_percent": cheap_share,
+            "middle_tier_share_percent": tiers.get("moderate", {}).get("share_percent", 0.0),
+            "passes": commits,
+        },
+        "length_rule_evidence": {
+            "n_borderline": len(borderline),
+            "borderline_share_percent": round(100 * len(borderline) / n, 1),
+            "n_ran_20_plus_steps": len(heavy),
+            "heavy_share_percent": round(100 * len(heavy) / len(borderline), 1) if borderline else 0.0,
+            "worst": [
+                {"prompt": " ".join(s["prompt"].split())[:110],
+                 "steps": s["steps"], "output_tokens": s["output_tokens"]}
+                for s in sorted(borderline, key=lambda r: -r["steps"])[:3]
+            ],
+        },
+        "verdict": (
+            "sound and usable as a router" if (ranks and commits)
+            else "ranks correctly but is far too conservative to route on" if ranks
+            else "does not measure difficulty; complexity routing is unjustified as written"
+        ),
+    }
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--json", metavar="PATH",
+                    help="write the result as a publishable artifact instead of a report")
+    args = ap.parse_args()
+
+    r = analyse()
+    if not r.get("n_prompts"):
+        print("No transcripts found under", TRANSCRIPTS)
+        return 1
+
+    if args.json:
+        out = pathlib.Path(args.json)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(r, indent=2) + "\n")
+        print(f"wrote {out}  ({r['n_prompts']:,} prompts, verdict: {r['verdict']})")
         return 0
 
-    t, c = stats["trivial"], stats["complex"]
-    lift_out = c["median_out"] / t["median_out"] if t["median_out"] else 0
-    lift_steps = c["median_steps"] / t["median_steps"] if t["median_steps"] else 0
+    print(f"\n{r['n_prompts']:,} genuine human prompts recovered from "
+          f"{r['n_transcripts']} transcripts.")
+    print("Outcome measured: what the agent actually did next.\n")
+    print(f"{'tier':10}{'prompts':>9}{'share':>8}{'median out':>12}"
+          f"{'median steps':>14}{'mean steps':>12}")
+    for t in ("trivial", "moderate", "complex"):
+        v = r["tiers"].get(t)
+        if not v:
+            print(f"{t:10}{0:>9}")
+            continue
+        print(f"{t:10}{v['n']:>9}{v['share_percent']:>7.1f}%{v['median_out']:>12,.0f}"
+              f"{v['median_steps']:>14.1f}{v['mean_steps']:>12.1f}")
 
-    print("1. DOES THE ORDER MEAN ANYTHING?")
-    print(f"   complex vs trivial: {lift_out:.1f}x the output, {lift_steps:.1f}x the steps (medians)")
-    ranks = lift_out >= 1.5 and lift_steps >= 1.3
-    print("   YES. The ordering tracks real work." if ranks else
-          "   NO. The ordering does not track real work.")
+    rk, rt, le = r["ranking"], r["routing"], r["length_rule_evidence"]
+    print("\n1. DOES THE ORDER MEAN ANYTHING?")
+    print(f"   complex vs trivial: {rk['lift_output']}x the output, "
+          f"{rk['lift_steps']}x the steps (medians)")
+    print("   YES. The ordering tracks real work." if rk["passes"]
+          else "   NO. The ordering does not track real work.")
 
     print("\n2. DOES IT COMMIT HARD ENOUGH TO ROUTE ON?")
-    cheap = 100 * t["n"] / len(samples)
-    mid = 100 * stats.get("moderate", {}).get("n", 0) / len(samples)
-    print(f"   reaches the cheap tier on {cheap:.1f}% of prompts; {mid:.0f}% land in the middle")
-    if cheap >= 15:
-        print("   YES. Enough traffic reaches the cheap tier for routing to move the bill.")
-    else:
-        print(f"   NO. At {cheap:.1f}% cheap-tier reach, complexity routing sends almost")
-        print("   everything to the mid or top tier and can only move the bill slightly.")
+    print(f"   reaches the cheap tier on {rt['cheap_tier_share_percent']}% of prompts; "
+          f"{rt['middle_tier_share_percent']:.0f}% land in the middle")
+    print("   YES." if rt["passes"] else
+          f"   NO. At {rt['cheap_tier_share_percent']}% cheap-tier reach, complexity routing\n"
+          "   sends almost everything to the mid or top tier and can only move the bill slightly.")
 
-    print("\nVERDICT:", end=" ")
-    if ranks and cheap >= 15:
-        print("the classifier is sound and usable as a router.")
-    elif ranks:
-        print("the classifier ranks correctly but is far too conservative to save much.")
-        print("  The obvious fix, lowering the trivial threshold, is not available: the group")
-        print("  immediately below it is prompts where ONLY the length rule fired, and 19% of")
-        print("  those ran to 20+ steps. Brevity is not simplicity. In an agentic session the")
-        print("  prompt often does not contain the request, the context does, which is the same")
-        print("  reason 78.5% of the bill is spent reading. A router that reads only the prompt")
-        print("  is reading the part where the difficulty is not.")
-    else:
-        print("the classifier is not measuring difficulty. Complexity routing is")
-        print("  unjustified as written.")
-
-    print("\nA sample of what landed where:")
-    for tier in order:
-        rows = sorted(by_tier.get(tier, []), key=lambda r: -r["output_tokens"])[:2]
-        for r in rows:
-            p = " ".join(r["prompt"].split())[:88]
-            print(f"  [{tier:8}] steps={r['steps']:>3} out={r['output_tokens']:>6,}  {p}")
+    print(f"\nVERDICT: the classifier {r['verdict']}.")
+    if rk["passes"] and not rt["passes"]:
+        print(f"  Lowering the threshold is not the fix. The {le['borderline_share_percent']}% of")
+        print("  prompts sitting one point above it are prompts where ONLY the length rule")
+        print(f"  fired, and {le['heavy_share_percent']}% of those ran to 20+ steps:")
+        for w in le["worst"]:
+            print(f"    {w['steps']:>3} steps, {w['output_tokens']:>7,} out   {w['prompt'][:70]}")
+        print("  Brevity is not simplicity. In an agentic session the prompt often does not")
+        print("  contain the request, the context does, which is the same reason 78.5% of the")
+        print("  bill is spent reading. A router reading only the prompt reads the part where")
+        print("  the difficulty is not.")
     return 0
 
 
