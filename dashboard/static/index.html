@@ -236,9 +236,17 @@
   /* Read vs written, as one bar. A pie would ask the eye to compare angles
      for a comparison whose whole point is that one part dwarfs the other. */
   .split { display: flex; height: 46px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  /* min-width:0 is load-bearing. Without it a flex item refuses to shrink below
+     its content, so a label wider than its band pushes the band out and the
+     percentages stop matching the widths they are meant to show. */
   .split div {
     display: flex; align-items: center; padding: 0 .8rem; font-size: .85rem;
     font-weight: 600; white-space: nowrap; overflow: hidden;
+    min-width: 0; text-overflow: ellipsis;
+  }
+  .split-key .sw {
+    display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+    margin-right: .4rem; vertical-align: baseline;
   }
   .split .read  { background: var(--series-anthropic); color: #fff; }
   .split .write { background: var(--series-openai);    color: #fff; }
@@ -322,8 +330,10 @@
 <div class="wrap">
   <header>
     <h1>What does it cost to build software with an AI agent?</h1>
-    <div class="sub">I measured every turn of my own, across thirteen projects I actually
-      built. This is the bill, itemised, and the infrastructure I built once I had read it.</div>
+    <div class="sub">I measured mine: every request I sent to an AI coding assistant
+      while building thirteen projects, and what each one would cost.
+      <b>This page is two things.</b> First the answer, which was not what I expected.
+      Then the tool I built because of it, which you can point your own app at for free.</div>
   </header>
 
   <div class="study" id="study">
@@ -366,7 +376,7 @@
   </section>
 
   <div class="section-intro">
-    <h2>So I built the thing that acts on it</h2>
+    <h2>What I built because of that answer</h2>
     <p>If most of the money is spent reading, the lever that matters is not
       "ask for shorter answers", it is <b>which model reads your context</b>. That
       is a routing decision, and it has to be made per request, before the call,
@@ -374,7 +384,7 @@
   </div>
 
   <div class="hero">
-    <h2>Point any OpenAI-SDK app at it. No code change.</h2>
+    <h2>How you would use it: change one setting, not your code.</h2>
     <p><b>This does not send anything to OpenAI.</b> "OpenAI-compatible" names a
        message format, not a company, in the same way "HTTP-compatible" names a
        protocol rather than a website. Every LLM client already speaks that format,
@@ -384,11 +394,17 @@
        whichever tier the prompt needs. The API key's suffix becomes the project
        name in the ledger, which is how per-project cost gets attributed without
        the caller passing anything extra.</p>
-    <pre><span class="c"># your existing app, unmodified</span>
+    <p style="margin-bottom:.5rem">Below is the entire integration. The first two lines
+       are settings you export in your shell, not code you write. The third is a line
+       your app already has, with one word changed.</p>
+    <pre><span class="c"># 1. tell your app where to send requests (this server, instead of the vendor)</span>
 export OPENAI_BASE_URL=<span id="gw-url">http://localhost:8000</span>/v1
+
+<span class="c"># 2. name your project. the bit after wd- is what shows up in the ledger</span>
 export OPENAI_API_KEY=wd-<span class="c">my-project</span>
 
-<span class="c"># ask for a group instead of a model, and it routes by prompt complexity</span>
+<span class="c"># 3. in your code, ask for a group instead of a specific model.</span>
+<span class="c">#    the server then reads the prompt and picks the tier for you.</span>
 client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messages=[...])</pre>
     <div class="gw-state" id="gw-state">checking gateway…</div>
 
@@ -409,8 +425,8 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
   </div>
 
   <section class="finding" id="validation" hidden>
-    <div class="finding-kicker">Does the router actually work?</div>
-    <h2 class="finding-h">I tested it against ground truth. It ranks correctly and routes badly.</h2>
+    <div class="finding-kicker">Checking my own work</div>
+    <h2 class="finding-h">I tested the tool I just built. Half of it does not work yet.</h2>
     <p class="finding-lede" id="val-lede"></p>
     <div class="table-scroll">
       <table>
@@ -427,7 +443,7 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
   </section>
 
   <div class="section-intro" id="ledger-intro">
-    <h2>The ledger underneath</h2>
+    <h2>The raw data behind everything above</h2>
     <p>Both things live in one table. <b>Measured build work</b> is the thirteen
        projects above, recovered from local Claude Code session transcripts, which
        is why the models in it are Anthropic ones. <b>Live calls</b> are what the
@@ -919,15 +935,25 @@ function renderFindings(f) {
     `is to ask it for shorter answers; output is ${rw.write_percent}% of this bill, so that instinct is ` +
     `capped at a tenth of the spend before it begins.`;
 
+  // Only the widest band gets text inside it. A 10.6% segment is about 110px at
+  // this page width and "Cache writes 10.6%" needs more than that, so the label
+  // spilled over its neighbour. Every band is named in the key directly beneath
+  // regardless, so nothing is lost by keeping the narrow ones clean.
+  const IN_BAR_MIN = 25;
+  const band = (cls, pct, label) =>
+    pct > 0.5
+      ? `<div class="${cls}" style="width:${pct}%">${pct >= IN_BAR_MIN ? esc(label) + " " + pct + "%" : ""}</div>`
+      : "";
   $("rw-split").innerHTML =
-    `<div class="read"  style="width:${rw.read_percent}%">Reading context ${rw.read_percent}%</div>` +
-    (ttlPct > 0.5 ? `<div class="other" style="width:${ttlPct}%">${ttlPct > 7 ? "Cache writes " + ttlPct + "%" : ""}</div>` : "") +
-    `<div class="write" style="width:${rw.write_percent}%">${rw.write_percent > 7 ? "Output " + rw.write_percent + "%" : ""}</div>`;
+    band("read", rw.read_percent, "Reading context") +
+    band("other", ttlPct, "Cache writes") +
+    band("write", rw.write_percent, "Output");
+  const sw = (v) => `<span class="sw" style="background:${v}"></span>`;
   $("rw-split").insertAdjacentHTML("afterend",
     `<div class="split-key">` +
-    `<span>Reading context ${money(rw.read_cost_usd)}</span>` +
-    (ttlPct > 0.5 ? `<span>One-hour cache-write premium ${money(rw.cache_ttl_premium_usd)}</span>` : "") +
-    `<span>Generating output ${money(rw.write_cost_usd)}</span>` +
+    `<span>${sw("var(--series-anthropic)")}Reading context ${money(rw.read_cost_usd)} · ${rw.read_percent}%</span>` +
+    (ttlPct > 0.5 ? `<span>${sw("var(--border)")}Cache writes ${money(rw.cache_ttl_premium_usd)} · ${ttlPct}%</span>` : "") +
+    `<span>${sw("var(--series-openai)")}Output ${money(rw.write_cost_usd)} · ${rw.write_percent}%</span>` +
     `</div>` +
     (ttlPct > 0.5 ? `<p class="cf-caveat">That middle slice is the surcharge for writing to a ` +
       `one-hour cache instead of a five-minute one, 2.0x the input rate against 1.25x. It came to ` +
