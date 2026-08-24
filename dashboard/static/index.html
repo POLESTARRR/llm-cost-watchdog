@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LLM Cost Gateway</title>
+<title>The Reading Bill — what AI coding actually costs</title>
 <style>
   /* Defined on :root, not on .viz-root, `body` sits above .viz-root in the
      tree, and custom properties only inherit downward. Scoping them to
@@ -274,6 +274,13 @@
   .cf-row.actual { border-left: 3px solid var(--status-good); }
   .cf-caveat { color: var(--text-muted); font-size: .82rem; margin: .8rem 0 0; max-width: 74ch; line-height: 1.6; }
 
+  details.ops { margin-top: 2.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+  details.ops > summary {
+    cursor: pointer; color: var(--text-secondary); font-size: .85rem;
+    padding: .3rem 0; list-style-position: outside;
+  }
+  details.ops > summary:hover { color: var(--text-primary); }
+
   /* --- gateway hero + live classifier -------------------------------- */
   .hero {
     background: var(--surface-1); border: 1px solid var(--border);
@@ -330,10 +337,10 @@
 <div class="wrap">
   <header>
     <h1>What does it cost to build software with an AI agent?</h1>
-    <div class="sub">I measured mine: every request I sent to an AI coding assistant
-      while building thirteen projects, and what each one would cost.
-      <b>This page is two things.</b> First the answer, which was not what I expected.
-      Then the tool I built because of it, which you can point your own app at for free.</div>
+    <div class="sub">Nobody had published a straight answer, so I measured my own:
+      <b>4,399 requests across thirteen projects, every one priced.</b> The answer
+      was not what I expected, and the second half of this page is the tool I built
+      because of it.</div>
   </header>
 
   <div class="study" id="study">
@@ -342,7 +349,7 @@
   </div>
 
   <section class="finding">
-    <div class="finding-kicker">The finding</div>
+    <div class="finding-kicker">The answer</div>
     <h2 class="finding-h">You do not pay an agent to write. You pay it to read.</h2>
     <p class="finding-lede" id="finding-lede"></p>
     <div class="split" id="rw-split"></div>
@@ -350,8 +357,8 @@
   </section>
 
   <section class="finding">
-    <div class="finding-kicker">What actually reduced the bill</div>
-    <h2 class="finding-h" id="cache-h">Caching, by a factor no model swap comes close to.</h2>
+    <div class="finding-kicker">What actually made it cheaper</div>
+    <h2 class="finding-h" id="cache-h">Not a cheaper model. Re-reading the same code at a discount.</h2>
     <p class="finding-lede" id="cache-lede"></p>
     <div class="cf" id="counterfactuals"></div>
     <p class="cf-caveat">Those two rows re-price a substitution on the real token
@@ -362,8 +369,8 @@
   </section>
 
   <section class="finding">
-    <div class="finding-kicker">The thirteen projects</div>
-    <h2 class="finding-h">What the agent cost on each, at metered rates.</h2>
+    <div class="finding-kicker">Every project, itemised</div>
+    <h2 class="finding-h">What each project would have cost, request by request.</h2>
     <div class="table-scroll">
       <table>
         <thead><tr>
@@ -514,6 +521,9 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
     </div>
   </div>
 
+  <details class="ops">
+    <summary>Show the operational panels (routing state, pricing drift, per-model totals, recent calls)</summary>
+
   <section>
     <h2>Routing</h2>
     <div id="router-panel"></div>
@@ -571,6 +581,7 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
       </table>
     </div>
   </section>
+  </details>
 </div>
 </div>
 
@@ -913,37 +924,20 @@ function renderFindings(f) {
 
   const cached = (f.caching || {}).hit_rate_percent;
   $("study-src").innerHTML =
-    `<b>No per-token charge ever occurred.</b> This work ran on a flat-fee Claude Code plan, so ` +
-    `${money(h.cost_usd)} is value delivered rather than money spent, and every figure below ` +
-    `describes how that value was priced, not a bill anyone received. Saying "spent" would be the ` +
-    `single most misleading word available here.<br><br>` +
-    `Recovered from local session transcripts covering ${esc(day(h.first_day))} to ` +
-    `${esc(day(h.last_day))} and priced with this project's own three-rate model, because cache ` +
-    `reads, cache writes and the one-hour TTL premium all bill differently and ignoring that ` +
-    `overstates a cache-heavy workload several times over. The ` +
-    `${compact(h.input_tokens)} input tokens are dominated by re-reads: ${cached}% came from cache, ` +
-    `so that is the same context being consulted repeatedly, not that much distinct text.`;
+    `<b>Nobody spent ${money(h.cost_usd)}.</b> This ran on a flat monthly plan costing ` +
+    `${paid.subscription_cost_usd != null ? money(paid.subscription_cost_usd) : "a fixed fee"} ` +
+    `over these ${esc(day(h.first_day))}&ndash;${esc(day(h.last_day))} days. The bigger number is ` +
+    `what the same tokens would have cost on a pay-per-use plan, which is the only way to compare ` +
+    `one request against another.<br><br>` +
+    `Read from my own session logs. Most of those ${compact(h.input_tokens)} input tokens are the ` +
+    `same code being re-read: ${cached}% came from cache.`;
 
-  // Three named parts that sum to the bill. Nothing is left as a residual:
-  // the gap between reading and writing turned out to be the cache-TTL
-  // surcharge, which is a real line item and is labelled as one.
-  const ttlPct = rw.cache_ttl_premium_percent || 0;
   $("finding-lede").innerHTML =
-    `Across every turn, the agent read <b>${esc(rw.ratio)} tokens for each one it wrote</b>. ` +
-    `In money that is <b>${money(rw.read_cost_usd)} to read</b> against ` +
-    `<b>${money(rw.write_cost_usd)} to write</b>. The instinct that follows from "the AI writes my code" ` +
-    `is to ask it for shorter answers; output is ${rw.write_percent}% of this bill, so that instinct is ` +
-    `capped at a tenth of the spend before it begins.`;
+    `For every word the AI wrote, it read <b>${esc(rw.ratio)}</b>. That is ` +
+    `<b>${money(rw.read_cost_usd)} spent reading</b> against <b>${money(rw.write_cost_usd)} writing</b>.<br><br>` +
+    `So the obvious saving, telling it to give shorter answers, cannot help much: ` +
+    `writing is only ${rw.write_percent}% of the bill.`;
 
-  // Only the widest band gets text inside it. A 10.6% segment is about 110px at
-  // this page width and "Cache writes 10.6%" needs more than that, so the label
-  // spilled over its neighbour. Every band is named in the key directly beneath
-  // regardless, so nothing is lost by keeping the narrow ones clean.
-  const IN_BAR_MIN = 25;
-  const band = (cls, pct, label) =>
-    pct > 0.5
-      ? `<div class="${cls}" style="width:${pct}%">${pct >= IN_BAR_MIN ? esc(label) + " " + pct + "%" : ""}</div>`
-      : "";
   $("rw-split").innerHTML =
     band("read", rw.read_percent, "Reading context") +
     band("other", ttlPct, "Cache writes") +
@@ -962,18 +956,18 @@ function renderFindings(f) {
 
   const p = rw.priciest_turn;
   $("priciest").innerHTML =
-    `The single most expensive turn cost <b>${money(p.cost_usd)}</b>. It read ` +
-    `<b>${p.input_tokens.toLocaleString()} tokens</b> and wrote back ` +
-    `<b>${p.output_tokens.toLocaleString()}</b>, on ${esc(p.project)}. Almost all of that ` +
-    `money bought context. The median turn cost ${money(t.median_usd)}, so the shape of this ` +
-    `workload is a long tail of expensive reads, not a steady drip of expensive answers.`;
+    `<b>The most expensive single request cost ${money(p.cost_usd)}.</b> It read ` +
+    `${p.input_tokens.toLocaleString()} tokens and replied with ${p.output_tokens.toLocaleString()}. ` +
+    `A typical request cost ${money(t.median_usd)}, so the expensive ones are expensive because of ` +
+    `how much they had to read first.`;
 
   $("cache-lede").innerHTML =
-    `${c.hit_rate_percent}% of every input token was served from cache. The identical work ` +
-    `uncached would have cost <b>${money(c.uncached_cost_usd)}</b> instead of ` +
-    `<b>${money(h.cost_usd)}</b>, which is <b>${c.multiple}x</b>. That is ` +
-    `<b>${money(c.saved_usd)}</b> already saved, with no decision to make and no quality risk taken. ` +
-    `It is also four times the largest number any model substitution can offer:`;
+    `Sending the same code repeatedly is charged at a discount after the first time. ` +
+    `${c.hit_rate_percent}% of the reading qualified, which cut the bill from ` +
+    `<b>${money(c.uncached_cost_usd)}</b> to <b>${money(h.cost_usd)}</b>.<br><br>` +
+    `That is <b>${money(c.saved_usd)}</b> saved automatically, with nothing to decide and no risk ` +
+    `to answer quality. Switching to a cheaper model saves less, and only if the cheaper model is ` +
+    `good enough:`;
 
   $("counterfactuals").innerHTML =
     `<div class="cf-row actual"><span class="m">What it actually cost</span>` +
@@ -1016,13 +1010,10 @@ function renderValidation(v) {
   const rk = v.ranking, rt = v.routing, le = v.length_rule_evidence;
 
   $("val-lede").innerHTML =
-    `The router is this project's central claim and nothing had ever checked it. So I did, ` +
-    `against <b>${v.n_prompts.toLocaleString()} real prompts</b> from ${v.n_transcripts} of my own ` +
-    `sessions, where the outcome is already recorded: how much the agent then generated, and how ` +
-    `many steps it took before handing back. Both were measured by a system that had never heard ` +
-    `of this classifier. Turn <i>cost</i> is deliberately not the outcome, because in an agentic ` +
-    `session it is dominated by accumulated context and would have paid the classifier for ` +
-    `nothing more than guessing which turns came late.`;
+    `The tool guesses how hard each request is, then sends easy ones to a cheaper model. ` +
+    `That guess is the whole idea, so I checked it against ${v.n_prompts.toLocaleString()} real ` +
+    `requests where I already know what happened next.<br><br>` +
+    `It got the <b>order</b> right and the <b>decision</b> wrong:`;
 
   $("val-tiers").innerHTML = ["trivial", "moderate", "complex"].map(k => {
     const r = t[k];
@@ -1042,14 +1033,13 @@ function renderValidation(v) {
 
   const worst = (le.worst || [])[0];
   $("val-limit").innerHTML =
-    `<b>The obvious fix does not work.</b> Lowering the bar would sweep in the ` +
-    `${le.borderline_share_percent}% of prompts that are merely <i>short</i>, where no other signal ` +
-    `fired at all. ${le.heavy_share_percent}% of those ran to twenty steps or more` +
-    (worst ? `, including <i>"${esc(worst.prompt)}"</i> at <b>${worst.steps} steps</b>` : "") +
-    `. Brevity is not simplicity: in an agentic session the prompt often does not contain the ` +
-    `request, the context does. Which is the same reason ${'78.5'}% of the bill above is spent ` +
-    `reading. <b>A router that reads only the prompt is reading the part where the difficulty ` +
-    `is not</b>, and that is a limit of the idea rather than of this implementation.`;
+    `<b>Why I can't just lower the bar.</b> The next group down is requests that are simply ` +
+    `<i>short</i>. But short does not mean easy: ${le.heavy_share_percent}% of them turned into ` +
+    `twenty steps of work or more` +
+    (worst ? `, like <i>&ldquo;${esc(worst.prompt)}&rdquo;</i>, which took <b>${worst.steps} steps</b>` : "") +
+    `.<br><br>When you are deep in a session, a two-word message can mean "carry on with the big ` +
+    `thing". The difficulty is in the conversation, not the sentence. Which is the same reason ` +
+    `most of the bill above is reading: <b>the tool is looking at the wrong half of the request.</b>`;
 
   $("val-method").innerHTML =
     `Generated ${esc((v.generated_at || "").slice(0, 10))} from ${v.n_transcripts} local session ` +
