@@ -1,46 +1,46 @@
 {
-  "generated_at": "2026-08-24T15:38:22+00:00",
-  "n_prompts": 1079,
+  "generated_at": "2026-08-24T16:12:08+00:00",
+  "n_prompts": 1081,
   "n_transcripts": 86,
   "tiers": {
     "trivial": {
-      "n": 154,
-      "median_out": 1716.0,
-      "mean_out": 15037.792207792209,
-      "median_steps": 3.0,
-      "mean_steps": 17.493506493506494,
-      "share_percent": 14.3
+      "n": 108,
+      "median_out": 1214.0,
+      "mean_out": 10232.296296296296,
+      "median_steps": 2.5,
+      "mean_steps": 13.268518518518519,
+      "share_percent": 10.0
     },
     "moderate": {
-      "n": 614,
-      "median_out": 5573.5,
-      "mean_out": 16779.224755700325,
-      "median_steps": 7.0,
-      "mean_steps": 17.14169381107492,
-      "share_percent": 56.9
+      "n": 526,
+      "median_out": 4960.0,
+      "mean_out": 15040.079847908744,
+      "median_steps": 6.0,
+      "mean_steps": 16.129277566539923,
+      "share_percent": 48.7
     },
     "complex": {
-      "n": 311,
-      "median_out": 8450,
-      "mean_out": 20971.655948553056,
-      "median_steps": 8.0,
-      "mean_steps": 17.89710610932476,
-      "share_percent": 28.8
+      "n": 447,
+      "median_out": 9565,
+      "mean_out": 22782.950782997763,
+      "median_steps": 9.0,
+      "mean_steps": 19.953020134228186,
+      "share_percent": 41.4
     }
   },
   "ranking": {
-    "lift_output": 4.9,
-    "lift_steps": 2.7,
+    "lift_output": 7.9,
+    "lift_steps": 3.6,
     "passes": true
   },
   "routing": {
-    "cheap_tier_share_percent": 14.3,
-    "middle_tier_share_percent": 56.9,
+    "cheap_tier_share_percent": 10.0,
+    "middle_tier_share_percent": 48.7,
     "passes": false
   },
   "length_rule_evidence": {
-    "n_borderline": 504,
-    "borderline_share_percent": 46.7,
+    "n_borderline": 506,
+    "borderline_share_percent": 46.8,
     "n_ran_20_plus_steps": 97,
     "heavy_share_percent": 19.2,
     "worst": [
@@ -63,16 +63,16 @@
   },
   "words_only": {
     "moderate": {
-      "n": 961,
-      "share_percent": 89.1
+      "n": 807,
+      "share_percent": 74.7
     },
     "complex": {
-      "n": 99,
-      "share_percent": 9.2
+      "n": 269,
+      "share_percent": 24.9
     },
     "trivial": {
-      "n": 19,
-      "share_percent": 1.8
+      "n": 5,
+      "share_percent": 0.5
     }
   },
   "verdict": "ranks correctly but is far too conservative to route on"

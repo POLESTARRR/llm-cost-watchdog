@@ -157,3 +157,62 @@ def test_context_is_optional_and_omitting_it_keeps_word_only_behaviour():
     assert classify("reformat this JSON").tier == classify(
         "reformat this JSON", context_tokens=None
     ).tier
+
+
+# --- the way a real person actually asks ----------------------------------
+
+
+REAL_BUG_REPORT = (
+    "Our checkout page has started timing out for some users but not others. It seems to "
+    "happen more in the evening. We have a Node backend talking to Postgres and a Redis "
+    "cache in front of it. The logs show a lot of connection errors but I can't tell if "
+    "that's the cause or a symptom. We added a new promo code feature last week and I'm "
+    "wondering if that's related. Some users report the page just spins forever and others "
+    "get a 502. I've tried restarting the service and it helps for about an hour then comes "
+    "back. I need to work out what is actually going on and how to stop it happening again."
+)
+
+
+def test_a_detailed_problem_is_not_called_moderate():
+    """The commonest way a real person meets this classifier, and it failed.
+
+    This paragraph contains no word on any list: not "diagnose", not "root
+    cause", not "bottleneck". People describe symptoms, they do not name
+    techniques. With the old thresholds it scored exactly zero, no signal fired
+    at all, and it landed in the middle tier. Measured traffic says a prompt
+    this size runs to 12,584 median output, above the complex tier's own median.
+    """
+    from src.complexity import classify
+
+    v = classify(REAL_BUG_REPORT)
+    assert v.tier == "complex", f"scored {v.score} with signals {v.signals}"
+
+
+def test_trivial_verbs_do_not_match_inside_other_words():
+    """"count" used to match "account" and "discount", making a request look easier.
+
+    Every one of these scores the request DOWN, so a false positive is the
+    dangerous direction: it routes real work to the cheapest model.
+    """
+    from src.complexity import _TRIVIAL_VERBS, _count_hits
+
+    # whole_word=True is how classify() calls this for the trivial list, and the
+    # tightness is the whole point: complex verbs stay open-stemmed on purpose.
+    for trap in ("my account balance", "apply the discount", "an assortment of files",
+                 "the resort booking", "he was stubborn", "a misspell fix"):
+        assert not _count_hits(trap, _TRIVIAL_VERBS, whole_word=True), \
+            f"false positive in {trap!r}"
+
+    # And the ordinary inflections a person would type must still be caught.
+    for phrase, expected in (("renaming the var", "rename"), ("sorting the list", "sort"),
+                             ("translating this", "translate"), ("reformat it", "reformat")):
+        assert expected in _count_hits(phrase, _TRIVIAL_VERBS, whole_word=True), phrase
+
+
+def test_genuinely_mechanical_requests_still_reach_the_cheap_tier():
+    """The counterweight: escalating everything would be its own failure."""
+    from src.complexity import classify
+
+    for p in ("reformat this JSON", "rename this variable to userId",
+              "add a docstring to this function"):
+        assert classify(p).tier == "trivial", p
