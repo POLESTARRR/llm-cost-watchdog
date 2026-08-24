@@ -4,6 +4,7 @@
     ccost              what is happening right now
     ccost week         the last seven days
     ccost projects     every project, ranked
+    ccost report       a shareable HTML file, no server needed
 
 Reads the session logs Claude Code already writes to ~/.claude/projects. Nothing
 to install into your workflow, no API key, no account, and it never sends
@@ -450,6 +451,142 @@ def snapshot(sessions: list[dict]) -> dict:
     }
 
 
+
+REPORT_CSS = """
+:root{color-scheme:light dark;--bg:#f4f4f2;--card:#fcfcfb;--line:#e2e2dd;
+--ink:#0b0b0b;--dim:#52514e;--mute:#7a7975;--read:#2a78d6;--write:#eb6834;--ok:#007a4d;--warn:#9a6700}
+@media(prefers-color-scheme:dark){:root{--bg:#111110;--card:#1a1a19;--line:#33322f;
+--ink:#fff;--dim:#c3c2b7;--mute:#91908a;--read:#3987e5;--write:#d95926;--ok:#3fb27f;--warn:#d9a441}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:2rem 1.25rem 4rem}
+.wrap{max-width:940px;margin:0 auto}h1{font-size:1.35rem;margin:0 0 .3rem;letter-spacing:-.01em}
+.sub{color:var(--dim);font-size:.9rem;margin-bottom:1.6rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem 1.15rem;margin-bottom:1rem}
+.card.warn{border-left:3px solid var(--warn)}.card.ok{border-left:3px solid var(--ok)}
+h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--mute);margin:0 0 .6rem;font-weight:600}
+.figs{display:flex;gap:2.2rem;flex-wrap:wrap;margin:.2rem 0 .9rem}
+.figs .n{font-size:1.6rem;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.figs .l{font-size:.78rem;color:var(--dim)}
+.split{display:flex;height:40px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:.3rem 0 .5rem}
+.split div{display:flex;align-items:center;padding:0 .7rem;font-size:.82rem;font-weight:600;color:#fff;min-width:0;overflow:hidden}
+.key{display:flex;gap:1.3rem;flex-wrap:wrap;font-size:.8rem;color:var(--mute)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:.35rem}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th,td{text-align:left;padding:.45rem .6rem;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);font-weight:500}
+td.n{text-align:right;font-variant-numeric:tabular-nums}tr:last-child td{border-bottom:none}
+.note{color:var(--mute);font-size:.8rem;line-height:1.6;margin:.6rem 0 0}
+.scroll{overflow-x:auto}
+"""
+
+
+def build_report(sessions: list[dict]) -> str:
+    """One self-contained HTML file: no server, no key, no network.
+
+    The dashboard needs a deployment, a hosted database and a shared secret
+    before anyone sees a number, which is three walls in front of a person who
+    just wants to look at their own usage. This is the same content as a file
+    you can double-click, email, or drop on any static host.
+
+    Everything is inlined. It opens with the network off, and it stays readable
+    years after this repo does, because there is nothing for it to depend on.
+    """
+    import datetime as dt
+    import html as _html
+
+    priced = [s for s in sessions if s.get("priced") and s["turns"]]
+    unpriced = [s for s in sessions if not s.get("priced")]
+    e = _html.escape
+
+    total = sum(s["cost"] for s in priced)
+    turns = sum(len(s["turns"]) for s in priced)
+    read = sum(sum(s["turns"]) for s in priced)
+
+    by_proj: dict[str, dict] = {}
+    for s in priced:
+        b = by_proj.setdefault(s["project"], {"cost": 0.0, "turns": 0, "read": 0, "n": 0,
+                                              "tools": set()})
+        b["cost"] += s["cost"]; b["turns"] += len(s["turns"])
+        b["read"] += sum(s["turns"]); b["n"] += 1
+        b["tools"].add(s.get("tool", "claude-code"))
+
+    cur = max(priced, key=lambda s: s["mtime"]) if priced else None
+    rows = "".join(
+        f"<tr><td>{e(p)}</td><td>{e(', '.join(sorted(b['tools'])))}</td>"
+        f"<td class=n>{money(b['cost'])}</td><td class=n>{b['turns']:,}</td>"
+        f"<td class=n>{b['n']}</td><td class=n>{human(b['read'])}</td></tr>"
+        for p, b in sorted(by_proj.items(), key=lambda kv: -kv[1]["cost"])
+    )
+
+    growth_card = ""
+    if cur:
+        ctx, start = cur["turns"][-1], cur["turns"][0]
+        grew = ctx >= RESTART_SUGGEST_TOKENS
+        growth_card = f"""
+    <div class="card {'warn' if grew else 'ok'}">
+      <h2>Most recent session</h2>
+      <div class=figs>
+        <div><div class=n>{human(ctx)}</div><div class=l>tokens read per message</div></div>
+        <div><div class=n>{(ctx / start if start else 1):.1f}x</div><div class=l>more than at the start</div></div>
+        <div><div class=n>{len(cur['turns']):,}</div><div class=l>messages</div></div>
+        <div><div class=n>{money(cur['cost'])}</div><div class=l>{e(cur.get('tool', ''))} &middot; {e(cur['project'])}</div></div>
+      </div>
+      {'<p class=note><b>Start a new session for your next task.</b> Every further message here reads '
+       + human(ctx) + ' tokens before it answers, against ' + human(start)
+       + ' at the start. Context never shrinks inside a session, so finishing a piece of work is the '
+         'natural place to start over. It costs nothing.</p>'
+       if grew else '<p class=note>Context is still small. Nothing to do.</p>'}
+    </div>"""
+
+    unpriced_note = ""
+    if unpriced:
+        msgs = sum(s.get("message_count", 0) for s in unpriced)
+        unpriced_note = (f"<p class=note>Also {len(unpriced)} Copilot session(s), {msgs} messages. "
+                         f"Copilot publishes no token counts locally, so these are counted but "
+                         f"never priced: inventing the number would defeat the point.</p>")
+
+    when = dt.datetime.now().strftime("%d %b %Y")
+    return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>AI coding cost report</title><style>{REPORT_CSS}</style></head><body><div class=wrap>
+<h1>What my AI coding assistants cost</h1>
+<div class=sub>Generated {when} from local session logs. Nothing here was uploaded anywhere.</div>
+{growth_card}
+<div class=card>
+  <h2>All time</h2>
+  <div class=figs>
+    <div><div class=n>{money(total)}</div><div class=l>at pay-per-use rates</div></div>
+    <div><div class=n>{len(by_proj)}</div><div class=l>projects</div></div>
+    <div><div class=n>{turns:,}</div><div class=l>messages with token counts</div></div>
+    <div><div class=n>{human(read)}</div><div class=l>tokens read</div></div>
+  </div>
+  <p class=note><b>These are list prices, not a bill.</b> On a flat monthly plan no per-token
+  charge occurs. This is what the same tokens would have cost through a metered API, which is
+  the only way to compare one session against another.</p>
+  {unpriced_note}
+</div>
+<div class=card>
+  <h2>By project</h2>
+  <div class=scroll><table>
+    <thead><tr><th>project</th><th>assistant</th><th class=n>cost</th>
+    <th class=n>messages</th><th class=n>sessions</th><th class=n>read</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table></div>
+</div>
+<div class=card>
+  <h2>Why reading is the number that matters</h2>
+  <p class=note style="margin-top:0">Across these sessions the assistant read
+  <b>{(read / max(sum(1 for s in priced for _ in s['turns']), 1)):,.0f} tokens per message</b> on average.
+  The expensive part of agentic coding is not the code it writes, it is the context it reads
+  before writing, and that grows for as long as a session lasts. Finishing a piece of work and
+  starting a new session is the one lever that costs nothing to pull.</p>
+  <p class=note>Generated by <code>ccost</code>. Run <code>python scripts/ccost.py report</code>
+  to rebuild this file from your own logs.</p>
+</div>
+</div></body></html>
+"""
+
+
 def main() -> int:
     if not TRANSCRIPTS.exists():
         print(f"No Claude Code data at {TRANSCRIPTS}")
@@ -476,6 +613,12 @@ def main() -> int:
               "than this tool's price table.")
         return 1
 
+    if cmd == "report":
+        out = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "ai-cost-report.html")
+        out.write_text(build_report(sessions))
+        print(f"wrote {out.resolve()}")
+        print("  open it, email it, or drop it on any static host. No server, no key.")
+        return 0
     if cmd == "now":
         cmd_now(sessions)
     elif cmd == "week":
@@ -483,7 +626,7 @@ def main() -> int:
     elif cmd in ("projects", "project"):
         cmd_projects(sessions)
     else:
-        print(f"Unknown command {cmd!r}. Try: now, week, projects")
+        print(f"Unknown command {cmd!r}. Try: now, week, projects, report")
         return 1
     print()
     return 0

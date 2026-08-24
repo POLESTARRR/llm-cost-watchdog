@@ -6,7 +6,27 @@
 python scripts/ccost.py            # what is happening right now
 python scripts/ccost.py week       # the last seven days
 python scripts/ccost.py projects   # every project, ranked
+python scripts/ccost.py report     # a shareable HTML file
 ```
+
+## Sharing it without running anything
+
+`ccost report` writes one self-contained HTML file. No server, no account, no
+API key, no database.
+
+```bash
+python scripts/ccost.py report my-costs.html
+```
+
+Open it by double-clicking. Email it. Commit it to a repo and turn on GitHub
+Pages. Drag it onto Netlify. Everything is inlined, there are no external
+requests and no JavaScript, so it renders with the network off and will keep
+rendering long after this repo stops being maintained.
+
+That is the whole publishing story. The dashboard in this repo needs a
+deployment, a hosted database and a shared secret before anyone sees a number,
+which is three walls in front of somebody who only wants to look at their own
+usage. This is the same content as a file.
 
 No setup. No API key. No account. It reads the logs your assistants already
 write, and never sends anything anywhere.

@@ -300,3 +300,58 @@ def test_now_refuses_to_advise_on_an_unpriced_session(tmp_path, monkeypatch, cap
     ccost.cmd_now([{"tool": "copilot", "project": "x", "turns": [], "cost": 0.0,
                     "priced": False, "message_count": 3, "mtime": 0}])
     assert "No session with token counts" in capsys.readouterr().out
+
+
+# --- the shareable report -------------------------------------------------
+
+
+def _sessions_for_report():
+    return [
+        {"tool": "claude-code", "project": "alpha", "turns": [1000, 500_000],
+         "cost": 12.5, "priced": True, "mtime": 200},
+        {"tool": "codex", "project": "beta", "turns": [2000, 3000],
+         "cost": 1.25, "priced": True, "mtime": 100},
+        {"tool": "copilot", "project": "gamma", "turns": [], "cost": 0.0,
+         "priced": False, "message_count": 7, "mtime": 50},
+    ]
+
+
+def test_report_is_self_contained(tmp_path):
+    """It must open with the network off, years from now, wherever it lands."""
+    import re
+
+    html = ccost.build_report(_sessions_for_report())
+    assert "<style>" in html                      # css inlined
+    assert not re.findall(r'(?:src|href)="https?://', html), "report reaches out to the network"
+    assert "<script" not in html                  # nothing to execute, nothing to break
+
+
+def test_report_shows_every_project_and_marks_the_assistant(tmp_path):
+    html = ccost.build_report(_sessions_for_report())
+    assert "alpha" in html and "beta" in html
+    assert "claude-code" in html and "codex" in html
+
+
+def test_report_counts_copilot_without_pricing_it(tmp_path):
+    html = ccost.build_report(_sessions_for_report())
+    assert "7 messages" in html
+    assert "never priced" in html or "not priced" in html
+
+
+def test_report_carries_the_restart_advice_when_the_session_has_grown(tmp_path):
+    html = ccost.build_report(_sessions_for_report())
+    assert "Start a new session" in html
+
+
+def test_report_never_calls_list_price_a_bill(tmp_path):
+    """Same honesty rule the site is held to, in a file that outlives the site."""
+    html = ccost.build_report(_sessions_for_report())
+    assert "not a bill" in html
+
+
+def test_report_handles_a_machine_with_only_copilot(tmp_path):
+    """No priced session means no context figures. It must still produce a page."""
+    only = [s for s in _sessions_for_report() if not s["priced"]]
+    html = ccost.build_report(only)
+    assert "<title>" in html
+    assert "Start a new session" not in html
