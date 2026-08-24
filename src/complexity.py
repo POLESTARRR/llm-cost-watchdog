@@ -40,10 +40,56 @@ from dataclasses import dataclass, field
 TIER_TRIVIAL, TIER_MODERATE, TIER_COMPLEX = "trivial", "moderate", "complex"
 TIERS = (TIER_TRIVIAL, TIER_MODERATE, TIER_COMPLEX)
 
-# Score boundaries. Tuned so an unadorned short question lands in `moderate`
-# rather than `trivial`: reaching the cheap tier should require positive
-# evidence of simplicity, not merely the absence of evidence of difficulty.
+# Score boundaries, set from measured outcomes rather than from taste.
+#
+# `TRIVIAL_MAX_SCORE` was -2 on the reasoning that reaching the cheap tier
+# should require positive evidence of simplicity. That argument is sound and the
+# number it produced was wrong, which is the failure mode of every unvalidated
+# heuristic: it sounded careful, so nobody checked it.
+#
+# scripts/validate_classifier.py checks it, against 1,068 real prompts from
+# Claude Code transcripts whose outcome is known: how many tokens the agent
+# actually generated in reply, and how many steps it took. Neither is inflated
+# by accumulated context the way per-turn cost is, so neither rewards a late
+# turn for being late. What that measurement found:
+#
+#     score  n     median output   median steps
+#      -2    19        2,920            4        <- routed cheap
+#      -1   499        3,473            5        <- routed mid
+#       0   323        9,045            9        <- routed mid
+#
+# The boundary sat between -2 and -1, where real work differs by 1.2x. The
+# actual cliff is between -1 and 0, where it differs by 2.6x, holds at every
+# quartile, and survives a permutation test at p < 0.0005. So the old threshold
+# split a homogeneous group and left the real seam uncut, which stranded 47% of
+# all traffic one point above a tier it belonged in and made the cheap tier
+# almost unreachable: 89% of prompts were classified `moderate`.
+#
+# Moving it to -1 was the obvious conclusion and it is wrong, which the existing
+# tests caught: they assert that ambiguity must escalate rather than save money,
+# and that assertion survives this data. The -1 group is not a group of easy
+# requests, it is the group where **only the length penalty fired**. Nothing
+# about those prompts says "simple"; they are merely short. And in an agentic
+# session a short prompt routinely means "continue the large thing you are
+# doing", so the context carries the difficulty and the wording hides it:
+#
+#     "Please run this application for me."   ->  216 steps,  57,017 output
+#     "let's start from where we live."       ->  158 steps,  94,637 output
+#
+# 19% of score -1 prompts ran to 20 steps or more. A median says route them
+# cheap; that tail says a cheap model would be handed the session's heaviest
+# work on no evidence at all, and the cost of being wrong is asymmetric because
+# rework is more expensive than the tier upgrade would have been.
+#
+# So the boundary stays where positive evidence of simplicity is required. The
+# measurement's real target is the length penalty below, not this line.
 TRIVIAL_MAX_SCORE = -2
+
+# Left at 3. The same measurement shows the complex end separating cleanly
+# (score >= 3 runs 13,533 median output against 9,045 at score 0), but the
+# per-score samples above 3 are small (n = 8 to 32) and non-monotonic, so there
+# is no evidence here that would justify moving it. Unvalidated is not the same
+# as wrong, and a threshold is not improved by adjusting it without a reason.
 COMPLEX_MIN_SCORE = 3
 
 # Verbs that describe reshaping a system rather than answering about it. These
@@ -190,11 +236,19 @@ def classify(prompt: str) -> ComplexityVerdict:
         score += 2
         signals.append(f"long prompt ({chars} chars) +2")
     elif chars <= SHORT_PROMPT_CHARS:
-        if hard_signal:
-            signals.append(f"short prompt ({chars} chars) but a complexity signal fired; no discount")
-        else:
-            score -= 1
-            signals.append(f"short prompt ({chars} chars) -1")
+        # No discount, in either direction. The gate above used to allow one
+        # when no hard signal had fired, on the theory that brevity with nothing
+        # else to say is weak evidence of simplicity. Measured against 1,068 real
+        # prompts it is not evidence of anything: this branch alone produced 47%
+        # of all traffic at score -1, and 19% of that group ran to 20 steps or
+        # more, including "Please run this application for me." at 216 steps.
+        #
+        # Brevity in an agentic session usually means the context, not the
+        # sentence, carries the request. Length still escalates upward above,
+        # because that asymmetry does hold: a long prompt is rarely trivial.
+        # Prompts that are genuinely simple still reach the cheap tier on the
+        # mechanical-verb evidence that actually distinguishes them.
+        signals.append(f"short prompt ({chars} chars); no discount, brevity is not simplicity")
 
     # --- bucket ----------------------------------------------------------
     if score >= COMPLEX_MIN_SCORE:
