@@ -197,6 +197,34 @@
     font-size: .88rem; line-height: 1.55;
   }
 
+  /* --- the live tool: this reader's own sessions -----------------------
+     Sits above the study because it is the only thing on the page that is
+     about right now rather than about a finished measurement. Absent on a
+     deployed host, where there are no local transcripts to read. --- */
+  .tool {
+    border: 1px solid var(--border); border-left: 3px solid var(--series-google);
+    border-radius: 10px; padding: 1rem 1.15rem; margin: 1.4rem 0 0;
+    background: var(--surface-1);
+  }
+  .tool-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+  h2.tool-h { font-size: 1.05rem; margin: 0 0 .6rem; text-transform: none;
+              letter-spacing: -0.01em; font-weight: 640; color: var(--text-primary); }
+  .tool-cmd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem;
+    background: var(--surface-0); border: 1px solid var(--border); border-radius: 6px;
+    padding: .25rem .5rem; color: var(--text-secondary); white-space: nowrap;
+  }
+  .tool-stat { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: .8rem; }
+  .tool-stat div .n { font-size: 1.3rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tool-stat div .l { font-size: .78rem; color: var(--text-secondary); }
+  .tool-advice {
+    border-radius: 8px; padding: .7rem .85rem; font-size: .89rem; line-height: 1.55;
+    background: color-mix(in srgb, var(--status-warning) 12%, transparent);
+    color: var(--text-primary);
+  }
+  .tool-advice.ok { background: color-mix(in srgb, var(--status-good) 12%, transparent); }
+  .tool-week { margin-top: .9rem; font-size: .85rem; color: var(--text-secondary); }
+
   /* --- the study: what the ledger is evidence OF ---------------------
      Four numbers set as a row of figures rather than KPI cards. Cards imply
      a monitoring surface where each tile is a dial you might act on; these
@@ -342,6 +370,17 @@
       was not what I expected, and the second half of this page is the tool I built
       because of it.</div>
   </header>
+
+  <section class="tool" id="tool" hidden>
+    <div class="tool-head">
+      <div>
+        <div class="finding-kicker" style="margin-bottom:.15rem">Your machine, right now</div>
+        <h2 class="tool-h" id="tool-title">Your current session</h2>
+      </div>
+      <code class="tool-cmd">python scripts/ccost.py</code>
+    </div>
+    <div id="tool-body"></div>
+  </section>
 
   <div class="study" id="study">
     <div class="study-nums" id="study-nums"><div class="study-fig"><div class="n" style="opacity:.35">…</div><div class="l">reading the ledger</div></div></div>
@@ -1080,6 +1119,41 @@ function renderValidation(v) {
 
   $("validation").hidden = false;
 }
+
+// The live tool. Only meaningful on the machine that runs the assistant, so a
+// deployed copy simply never shows it rather than showing an empty panel.
+getJSON("/sessions").then(v => {
+  if (!v || !v.available) return;
+  const c = v.current, w = v.week;
+  const K = (n) => n >= 1e9 ? (n/1e9).toFixed(2)+"B" : n >= 1e6 ? (n/1e6).toFixed(1)+"M"
+                  : n >= 1e3 ? Math.round(n/1e3)+"K" : String(n);
+
+  $("tool-title").textContent = `Your current session: ${c.project}`;
+
+  const perTurnNow = c.context_now, perTurnStart = c.context_start;
+  const advice = c.should_restart
+    ? `<div class="tool-advice"><b>Consider starting a new session for your next task.</b><br>` +
+      `Every further message here reads <b>${K(perTurnNow)} tokens</b> before it answers, ` +
+      `against ${K(perTurnStart)} when you began. Context never shrinks inside a session, so ` +
+      `finishing a piece of work is the natural place to start over. It costs nothing.</div>`
+    : `<div class="tool-advice ok">Context is still small. Nothing to do.</div>`;
+
+  $("tool-body").innerHTML =
+    `<div class="tool-stat">` +
+    `<div><div class="n">${K(c.context_now)}</div><div class="l">tokens read per message now</div></div>` +
+    `<div><div class="n">${c.growth}x</div><div class="l">more than when you started</div></div>` +
+    `<div><div class="n">${c.turns.toLocaleString()}</div><div class="l">messages in this session</div></div>` +
+    `<div><div class="n">${money(c.cost_usd)}</div><div class="l">at pay-per-use rates</div></div>` +
+    `</div>` + advice +
+    `<div class="tool-week">Last 7 days: <b>${w.sessions}</b> sessions, ` +
+    `<b>${w.turns.toLocaleString()}</b> messages, <b>${K(w.tokens_read)}</b> tokens read` +
+    (w.grown_past_threshold ? `, and <b>${w.grown_past_threshold}</b> sessions grew past ` +
+      `${K(v.threshold_tokens)} of context.` : ".") +
+    `<br>Busiest: ` + w.by_project.slice(0,4).map(r =>
+      `${esc(r.project)} ${money(r.cost_usd)}`).join(" · ") + `</div>`;
+
+  $("tool").hidden = false;
+}).catch(() => {});
 
 getJSON("/validation")
   .then(v => { if (v && v.available && v.n_prompts) renderValidation(v); })

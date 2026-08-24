@@ -531,3 +531,56 @@ def test_index_does_not_call_list_price_spend(client):
     html = client.get("/").text
     assert "spent building them" not in html, "the false headline is back"
     assert "actually paid" in html
+
+
+# --- /sessions (the live tool, local only) ---------------------------------
+
+
+def test_sessions_endpoint_is_honest_when_there_is_nothing_to_read(client, monkeypatch):
+    """A deployed host has no ~/.claude/projects and must say so.
+
+    Returning an empty-but-successful shape would render as "you have no
+    sessions", which is a different and false claim from "this panel only works
+    where you run the assistant".
+    """
+    import sys
+    from pathlib import Path as _P
+
+    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+    import ccost
+
+    monkeypatch.setattr(ccost, "TRANSCRIPTS", _P("/nonexistent-transcripts"))
+    body = client.get("/sessions").json()
+    assert body["available"] is False
+    assert "reason" in body
+
+
+def test_sessions_endpoint_reports_growth_when_transcripts_exist(client, monkeypatch, tmp_path):
+    import json as _json
+    import sys
+    from pathlib import Path as _P
+
+    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+    import ccost
+
+    d = tmp_path / "-Users-x-Desktop-demo"
+    d.mkdir(parents=True)
+
+    def turn(fresh, cached):
+        return {"type": "assistant", "timestamp": "2026-08-20T10:00:00Z",
+                "message": {"model": "claude-sonnet-5",
+                            "usage": {"input_tokens": fresh,
+                                      "cache_read_input_tokens": cached,
+                                      "cache_creation_input_tokens": 0,
+                                      "output_tokens": 100}}}
+
+    (d / "s.jsonl").write_text(
+        "\n".join(_json.dumps(t) for t in [turn(1000, 0), turn(2000, 500_000)]) + "\n"
+    )
+    monkeypatch.setattr(ccost, "TRANSCRIPTS", tmp_path)
+
+    body = client.get("/sessions").json()
+    assert body["available"] is True
+    assert body["current"]["project"] == "demo"
+    assert body["current"]["should_restart"] is True
+    assert body["current"]["growth"] > 100      # 1,000 -> 502,000 tokens

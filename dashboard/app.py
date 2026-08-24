@@ -8,6 +8,7 @@ The MCP server is the core deliverable; this exists so the same data can be
 inspected in a browser without Claude Desktop.
 """
 
+import datetime as _dt
 import json
 import os
 from pathlib import Path
@@ -337,6 +338,81 @@ def findings_endpoint():
     # was introduced to prevent, and the headline drifted back into it once.
     data["actually_paid"] = subscription_roi("all_time", events=turns)
     return data
+
+
+@app.get("/sessions")
+def sessions_endpoint() -> dict:
+    """Your own Claude Code sessions, priced. Local only, by nature.
+
+    This is the ccost CLI's data served over HTTP, so the thing you can act on
+    appears where you are already looking instead of only in a terminal.
+
+    It reads ~/.claude/projects, which exists on the machine that did the work
+    and nowhere else. On a deployed host there is nothing to read and this says
+    so rather than returning an empty shape that looks like "you have no
+    sessions". Nothing leaves this process either way: the transcripts are read,
+    priced, and summarised in memory.
+    """
+    import sys
+
+    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+
+    try:
+        import ccost
+    except ImportError as exc:  # pragma: no cover - defensive
+        return {"available": False, "reason": f"ccost unavailable: {exc}"}
+
+    if not ccost.TRANSCRIPTS.exists():
+        return {
+            "available": False,
+            "reason": "No Claude Code sessions on this machine. This panel only "
+                      "works where you actually run the assistant.",
+        }
+
+    sessions = ccost.read_sessions()
+    if not sessions:
+        return {"available": False, "reason": "No priced sessions found."}
+
+    current = max(sessions, key=lambda s: s["mtime"])
+    turns = current["turns"]
+    cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=7)
+    recent = [
+        s for s in sessions
+        if _dt.datetime.fromtimestamp(s["mtime"], tz=_dt.timezone.utc) >= cutoff
+    ]
+
+    by_project: dict[str, float] = {}
+    for s in recent:
+        by_project[s["project"]] = by_project.get(s["project"], 0.0) + s["cost"]
+
+    return {
+        "available": True,
+        "current": {
+            "project": current["project"],
+            "turns": len(turns),
+            "cost_usd": round(current["cost"], 2),
+            "context_now": turns[-1],
+            "context_start": turns[0],
+            "growth": round(turns[-1] / turns[0], 1) if turns[0] else 1.0,
+            "should_restart": turns[-1] >= ccost.RESTART_SUGGEST_TOKENS,
+        },
+        "week": {
+            "sessions": len(recent),
+            "turns": sum(len(s["turns"]) for s in recent),
+            "cost_usd": round(sum(s["cost"] for s in recent), 2),
+            "tokens_read": sum(sum(s["turns"]) for s in recent),
+            "grown_past_threshold": sum(
+                1 for s in recent if s["turns"] and s["turns"][-1] >= ccost.RESTART_SUGGEST_TOKENS
+            ),
+            "by_project": sorted(
+                ({"project": p, "cost_usd": round(c, 2)} for p, c in by_project.items()),
+                key=lambda r: -r["cost_usd"],
+            )[:8],
+        },
+        "threshold_tokens": ccost.RESTART_SUGGEST_TOKENS,
+    }
 
 
 @app.get("/validation")
