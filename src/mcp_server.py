@@ -285,8 +285,6 @@ def check_pricing_drift(refresh: bool = False) -> dict:
     return _check_drift(refresh=refresh)
 
 
-if __name__ == "__main__":
-    server.run(transport="stdio")
 
 
 @server.tool(
@@ -374,3 +372,18 @@ def analyse_cost_levers(period: str = "all_time", source: str | None = None) -> 
     if (err := _check_source(source)):
         return err
     return analyse_levers(period=period, source=source).as_dict()
+
+
+# Kept at the very end of the file, deliberately.
+#
+# This block used to sit in the middle, above six @server.tool definitions.
+# `server.run()` blocks for the lifetime of the process, so when the module was
+# executed those six decorators were never reached and never registered: the
+# server advertised 16 tools while the source defined 22. Everything imported
+# fine, every function was callable from Python, and the tests at the time were
+# written against the module rather than the protocol, so nothing noticed. Only
+# a real initialize/tools-list handshake showed the gap.
+#
+# Anything that registers a tool must therefore appear above this line.
+if __name__ == "__main__":
+    server.run(transport="stdio")
