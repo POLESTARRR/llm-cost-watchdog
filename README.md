@@ -13,6 +13,39 @@ Any app built on the OpenAI SDK is now tracked, routed, budget-enforced and fail
 
 It is also an **MCP server**, so you can ask Claude Desktop *"what did I spend this week?"*, and a browser dashboard.
 
+---
+
+## Quick start (2 minutes)
+
+**1. Set two env vars:**
+```bash
+export OPENAI_BASE_URL=https://llmcostwatchdog.onrender.com/v1
+export OPENAI_API_KEY=wd-myproject
+```
+
+**2. Run your code normally** (no code changes needed):
+```python
+from openai import OpenAI
+client = OpenAI()
+response = client.chat.completions.create(
+    model="group:ladder",  # routes by prompt complexity
+    messages=[{"role": "user", "content": "..."}]
+)
+```
+
+**3. Watch the ledger:**
+```
+https://llmcostwatchdog.onrender.com/calls?source=live
+```
+
+See each call, model chosen, cost, latency, and complexity tier.
+
+**For your first test:** `bash scripts/setup_project.sh myproject`
+
+**Full docs:** [INTEGRATION.md](INTEGRATION.md)
+
+---
+
 ### Why the gateway exists
 
 The earlier version of this project was a Python wrapper you imported. It had a ledger, a router, guardrails, waste detection and 360 passing tests, and it had recorded exactly **zero** live calls, including from its author's own thirteen other projects. Adopting it meant rewriting every LLM call you had; that price was higher than the benefit, every time, for everyone.
