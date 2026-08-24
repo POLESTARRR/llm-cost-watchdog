@@ -315,7 +315,23 @@ def test_index_has_a_source_filter_and_provenance_banner(client):
     html = client.get("/").text
     assert 'id="source"' in html
     assert 'id="provenance"' in html
-    assert 'value="live,manual"' in html
+    # The two kinds of row the page makes claims about must be separately
+    # selectable: measured build work, and traffic the gateway itself served.
+    assert 'value="subscription,manual"' in html
+    assert 'value="live"' in html
+
+
+def test_index_defaults_to_all_time(client):
+    """The default period must not exclude the data the page is about.
+
+    "Last 7 days" was the default while the measured work spanned a fixed twelve
+    days in the past, so the page opened on a near-empty slice of a full ledger
+    and read as a broken or fabricated dashboard. A default that hides the
+    subject is worse than no default.
+    """
+    html = client.get("/").text
+    assert '<option value="all_time" selected>' in html
+    assert '<option value="week" selected>' not in html
 
 
 # --- /import (remote ingest for build-cost imports) ------------------------

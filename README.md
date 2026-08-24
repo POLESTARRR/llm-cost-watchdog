@@ -1,6 +1,39 @@
 # LLM Cost Gateway
 
-A self-hosted **OpenAI-compatible gateway** that routes each request to the cheapest model that can actually handle it, enforces budgets before money is spent, and records every call in a ledger you own, across **Anthropic, OpenAI, Google, and locally-hosted models**.
+**What does it actually cost to build software with an AI agent?** I measured every
+turn of my own, across thirteen projects I shipped: **4,407 turns, $865.48, 1.25
+billion tokens read.** The bill is itemised at
+[llmcostwatchdog.onrender.com](https://llmcostwatchdog.onrender.com).
+
+The answer was not the one I expected:
+
+| | | |
+|---|---:|---:|
+| Reading context | **$679.54** | 78.5% |
+| One-hour cache-write premium | $91.88 | 10.6% |
+| Generating output | $94.06 | 10.9% |
+
+**The agent read 292 tokens for every one it wrote.** The single most expensive
+turn cost $6.85: it read 696,926 tokens and wrote back 1,240. The instinct that
+follows from "the AI writes my code" is to ask for shorter answers, and output is
+10.9% of this bill, so that instinct is capped at a tenth of the spend before it
+starts. Keeping the cache warm cost within three dollars of everything the agent
+generated all month.
+
+Two consequences, and this repo is both of them:
+
+- **Caching is the lever that actually worked.** 97.7% of input tokens came from
+  cache. The identical work uncached would have cost $5,479.66, so it saved
+  $4,614.17 with no decision to make and no quality risk taken. That is four times
+  the largest number any model substitution can offer.
+- **If the money goes on reading, the question is which model reads your context**,
+  and that has to be decided per request, before the call, from the prompt itself.
+
+So the second half of this project is the gateway that decides it: a self-hosted
+**OpenAI-compatible endpoint** that routes each request to the cheapest model that
+can actually handle it, enforces budgets before money is spent, and records every
+call in a ledger you own, across **Anthropic, OpenAI, Google, and locally-hosted
+models**.
 
 Adoption is one environment variable:
 

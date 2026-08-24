@@ -312,6 +312,23 @@ def levers_endpoint(
     return analyse_levers(period=period, source=source).as_dict()
 
 
+@app.get("/findings")
+def findings_endpoint():
+    """What the ledger says about the cost of building software with an agent.
+
+    Scoped to the measured build work, never mixed with gateway traffic. Every
+    number is derived at call time so the page rendering it cannot drift from
+    the database behind it.
+    """
+    from src.findings import compute_findings, counterfactual
+
+    data = compute_findings().as_dict()
+    data["counterfactuals"] = [
+        counterfactual(m) for m in ("claude-sonnet-5", "claude-haiku-4-5")
+    ]
+    return data
+
+
 @app.get("/complexity")
 def complexity_endpoint(prompt: str = Query(..., min_length=1, max_length=20000)):
     """Classify a prompt without calling anything. Free, instant, explainable.

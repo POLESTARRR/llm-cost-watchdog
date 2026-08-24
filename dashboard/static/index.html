@@ -197,6 +197,75 @@
     font-size: .88rem; line-height: 1.55;
   }
 
+  /* --- the study: what the ledger is evidence OF ---------------------
+     Four numbers set as a row of figures rather than KPI cards. Cards imply
+     a monitoring surface where each tile is a dial you might act on; these
+     are the terms of a measurement and are read once, left to right. --- */
+  .study {
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    padding: 1.2rem 0; margin: 1.4rem 0 2.4rem;
+  }
+  .study-nums { display: flex; flex-wrap: wrap; gap: 2.4rem; }
+  .study-fig { }
+  .study-fig .n {
+    font-size: 2.1rem; font-weight: 650; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums; line-height: 1.05;
+  }
+  .study-fig .l {
+    color: var(--text-secondary); font-size: .82rem; margin-top: .25rem;
+  }
+  .study-src { color: var(--text-muted); font-size: .82rem; margin: 1rem 0 0; max-width: 78ch; }
+
+  /* --- a finding: kicker, claim, evidence ----------------------------- */
+  .finding { margin-top: 2.8rem; }
+  .finding-kicker {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--text-muted); font-weight: 600; margin-bottom: .5rem;
+  }
+  h2.finding-h {
+    font-size: 1.45rem; line-height: 1.25; letter-spacing: -0.02em;
+    margin: 0 0 .6rem; color: var(--text-primary);
+    text-transform: none; font-weight: 640; max-width: 30ch;
+  }
+  .finding-lede {
+    margin: 0 0 1.1rem; max-width: 74ch; color: var(--text-secondary);
+    font-size: .95rem; line-height: 1.6;
+  }
+  .finding-lede b { color: var(--text-primary); }
+
+  /* Read vs written, as one bar. A pie would ask the eye to compare angles
+     for a comparison whose whole point is that one part dwarfs the other. */
+  .split { display: flex; height: 46px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .split div {
+    display: flex; align-items: center; padding: 0 .8rem; font-size: .85rem;
+    font-weight: 600; white-space: nowrap; overflow: hidden;
+  }
+  .split .read  { background: var(--series-anthropic); color: #fff; }
+  .split .write { background: var(--series-openai);    color: #fff; }
+  .split .other { background: var(--border); color: var(--text-secondary); }
+  .split-key { display: flex; gap: 1.4rem; margin-top: .6rem; font-size: .82rem; color: var(--text-muted); flex-wrap: wrap; }
+
+  .priciest {
+    margin-top: 1.2rem; background: var(--surface-1); border: 1px solid var(--border);
+    border-left: 3px solid var(--series-anthropic);
+    border-radius: 8px; padding: .8rem .95rem; font-size: .89rem;
+    color: var(--text-secondary); max-width: 74ch; line-height: 1.6;
+  }
+  .priciest b { color: var(--text-primary); }
+
+  /* Counterfactual rows: a re-pricing, never labelled a saving. */
+  .cf { display: flex; flex-direction: column; gap: .5rem; }
+  .cf-row {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 1rem;
+    align-items: baseline; background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 8px; padding: .65rem .9rem;
+  }
+  .cf-row .m { font-size: .89rem; font-weight: 500; }
+  .cf-row .v { font-variant-numeric: tabular-nums; font-size: .89rem; }
+  .cf-row .d { font-variant-numeric: tabular-nums; font-size: .89rem; color: var(--text-muted); }
+  .cf-row.actual { border-left: 3px solid var(--status-good); }
+  .cf-caveat { color: var(--text-muted); font-size: .82rem; margin: .8rem 0 0; max-width: 74ch; line-height: 1.6; }
+
   /* --- gateway hero + live classifier -------------------------------- */
   .hero {
     background: var(--surface-1); border: 1px solid var(--border);
@@ -252,16 +321,64 @@
 <div class="viz-root">
 <div class="wrap">
   <header>
-    <h1>LLM Cost Gateway</h1>
-    <div class="sub">An OpenAI-compatible gateway that routes each request to the cheapest model that can handle it, enforces budgets before money is spent, and records every call</div>
+    <h1>What does it cost to build software with an AI agent?</h1>
+    <div class="sub">I measured every turn of my own, across thirteen projects I actually
+      shipped. This is the bill, itemised, and the infrastructure I built once I had read it.</div>
   </header>
 
+  <div class="study" id="study">
+    <div class="study-nums" id="study-nums"></div>
+    <p class="study-src" id="study-src"></p>
+  </div>
+
+  <section class="finding">
+    <div class="finding-kicker">The finding</div>
+    <h2 class="finding-h">You do not pay an agent to write. You pay it to read.</h2>
+    <p class="finding-lede" id="finding-lede"></p>
+    <div class="split" id="rw-split"></div>
+    <div class="priciest" id="priciest"></div>
+  </section>
+
+  <section class="finding">
+    <div class="finding-kicker">What actually reduced the bill</div>
+    <h2 class="finding-h" id="cache-h">Caching, by a factor no model swap comes close to.</h2>
+    <p class="finding-lede" id="cache-lede"></p>
+    <div class="cf" id="counterfactuals"></div>
+    <p class="cf-caveat">Those two rows re-price a substitution on the real token
+      counts. They do not claim the cheaper model would have produced usable work,
+      and on a workload that is mostly reading, a cheaper model reads the same
+      tokens for less rather than reading fewer of them. Whether the answers hold
+      up is a separate measurement, and it is what the shadow comparison below is for.</p>
+  </section>
+
+  <section class="finding">
+    <div class="finding-kicker">The thirteen projects</div>
+    <h2 class="finding-h">Every one of them shipped. This is what the agent cost on each.</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Project</th><th class="num">Turns</th><th class="num">Cost</th>
+          <th class="num">Per turn</th><th class="num">Read : written</th>
+        </tr></thead>
+        <tbody id="findings-projects"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="section-intro">
+    <h2>So I built the thing that acts on it</h2>
+    <p>If most of the money is spent reading, the lever that matters is not
+      "ask for shorter answers", it is <b>which model reads your context</b>. That
+      is a routing decision, and it has to be made per request, before the call,
+      from the prompt itself. This is the gateway that makes it.</p>
+  </div>
+
   <div class="hero">
-    <h2>Point any OpenAI app at it. No code change.</h2>
+    <h2>Point any OpenAI-SDK app at it. No code change.</h2>
     <p><b>"OpenAI-compatible" is a protocol, not a vendor.</b> It is the wire format
        every LLM client already speaks, so speaking it is what makes this a drop-in.
        Requests are routed to <b>Anthropic, OpenAI, Google, or a model on your own
-       machine</b> — whichever tier the prompt needs. The API key's suffix becomes the
+       machine</b>, whichever tier the prompt needs. The API key's suffix becomes the
        project name in the ledger, which is how per-project cost gets attributed
        without the caller passing anything extra.</p>
     <pre><span class="c"># your existing app, unmodified</span>
@@ -273,7 +390,7 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
     <div class="gw-state" id="gw-state">checking gateway…</div>
 
     <div class="try">
-      <label for="try-prompt">Try the router's classifier — runs here, instantly, calls no model</label>
+      <label for="try-prompt">Try the router's classifier. It runs here, instantly, and calls no model</label>
       <div class="try-row">
         <input id="try-prompt" placeholder="e.g. reformat this JSON" autocomplete="off">
         <button id="try-go">Classify</button>
@@ -289,29 +406,29 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
   </div>
 
   <div class="section-intro" id="ledger-intro">
-    <h2>The ledger</h2>
-    <p>Everything the gateway routes lands here. It is pre-loaded with something else too:
-       <b>the real build cost of 20 of this author's own projects</b>, imported from local
-       Claude Code session transcripts. That history is why the router has anything to
-       reason about, and it is why the models below are Anthropic ones while the gateway
-       above is vendor-neutral: it is measurement of past work, not traffic through this
-       endpoint. Filter to <b>Live calls only</b> to see just what the gateway served.</p>
+    <h2>The ledger underneath</h2>
+    <p>Both things live in one table. <b>Measured build work</b> is the thirteen
+       projects above, recovered from local Claude Code session transcripts, which
+       is why the models in it are Anthropic ones. <b>Live calls</b> are what the
+       gateway itself has served, on whatever provider it routed to. They are
+       different claims and the filter below keeps them apart, because a page that
+       adds four demo calls to 4,407 measured turns and reports one number is the
+       kind of page nobody should believe.</p>
   </div>
 
   <div class="controls">
     <label for="period">Period</label>
     <select id="period">
       <option value="today">Today</option>
-      <option value="week" selected>Last 7 days</option>
+      <option value="week">Last 7 days</option>
       <option value="month">Last 30 days</option>
-      <option value="all_time">All time</option>
+      <option value="all_time" selected>All time</option>
     </select>
     <label for="source">Data</label>
     <select id="source">
-      <option value="all" selected>All rows</option>
-      <option value="live,manual">Billed only</option>
-      <option value="live">Live calls only</option>
-      <option value="demo">Demo data only</option>
+      <option value="all" selected>Everything</option>
+      <option value="subscription,manual">Measured build work (the 13 projects)</option>
+      <option value="live">Live calls the gateway served</option>
     </select>
   </div>
 
@@ -741,6 +858,102 @@ async function load() {
     : `<tr><td colspan="9" class="empty">No calls in this period</td></tr>`;
 }
 
+// --- the study and its findings ---------------------------------------
+// Fetched once and independent of the period/source controls below: these are
+// statements about a fixed, finished body of work, so a filter that changed
+// them would be changing the claim rather than the view.
+// Abbreviate only where the exact digits stop being readable. 1.25B carries
+// its meaning better than the full integer; 4,407 does not become clearer as
+// "4.4K", it just becomes less precise, so the threshold sits above it.
+const compact = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 1e9) return (v / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
+  if (v >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (v >= 1e5) return Math.round(v / 1e3) + "K";
+  return v.toLocaleString("en-US");
+};
+const day = (iso) => {
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
+function renderFindings(f) {
+  const h = f.headline, rw = f.read_vs_write, c = f.caching, t = f.turn_shape;
+
+  $("study-nums").innerHTML = [
+    [money(h.cost_usd), "spent building them"],
+    [h.projects, "projects, all shipped"],
+    [compact(h.turns), "agent turns, every one recorded"],
+    [compact(h.input_tokens), "tokens read"],
+  ].map(([n, l]) => `<div class="study-fig"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`).join("");
+
+  $("study-src").innerHTML =
+    `Recovered from local Claude Code session transcripts covering ${esc(day(h.first_day))} to ` +
+    `${esc(day(h.last_day))}, and priced with this project's own three-rate model ` +
+    `(cache reads, cache writes, and the one-hour TTL premium bill differently, and ignoring that ` +
+    `overstates a cache-heavy workload several times over). Work on a flat-fee plan, so this is the ` +
+    `list-price value of the tokens, not a charge that appeared on a card.`;
+
+  // Three named parts that sum to the bill. Nothing is left as a residual:
+  // the gap between reading and writing turned out to be the cache-TTL
+  // surcharge, which is a real line item and is labelled as one.
+  const ttlPct = rw.cache_ttl_premium_percent || 0;
+  $("finding-lede").innerHTML =
+    `Across every turn, the agent read <b>${esc(rw.ratio)} tokens for each one it wrote</b>. ` +
+    `In money that is <b>${money(rw.read_cost_usd)} to read</b> against ` +
+    `<b>${money(rw.write_cost_usd)} to write</b>. The instinct that follows from "the AI writes my code" ` +
+    `is to ask it for shorter answers; output is ${rw.write_percent}% of this bill, so that instinct is ` +
+    `capped at a tenth of the spend before it begins.`;
+
+  $("rw-split").innerHTML =
+    `<div class="read"  style="width:${rw.read_percent}%">Reading context ${rw.read_percent}%</div>` +
+    (ttlPct > 0.5 ? `<div class="other" style="width:${ttlPct}%">${ttlPct > 7 ? "Cache writes " + ttlPct + "%" : ""}</div>` : "") +
+    `<div class="write" style="width:${rw.write_percent}%">${rw.write_percent > 7 ? "Output " + rw.write_percent + "%" : ""}</div>`;
+  $("rw-split").insertAdjacentHTML("afterend",
+    `<div class="split-key">` +
+    `<span>Reading context ${money(rw.read_cost_usd)}</span>` +
+    (ttlPct > 0.5 ? `<span>One-hour cache-write premium ${money(rw.cache_ttl_premium_usd)}</span>` : "") +
+    `<span>Generating output ${money(rw.write_cost_usd)}</span>` +
+    `</div>` +
+    (ttlPct > 0.5 ? `<p class="cf-caveat">That middle slice is the surcharge for writing to a ` +
+      `one-hour cache instead of a five-minute one, 2.0x the input rate against 1.25x. It came to ` +
+      `${money(rw.cache_ttl_premium_usd)}, within a few dollars of everything the agent generated ` +
+      `in the entire period. Keeping the context warm cost about what producing the code cost.</p>` : ""));
+
+  const p = rw.priciest_turn;
+  $("priciest").innerHTML =
+    `The single most expensive turn cost <b>${money(p.cost_usd)}</b>. It read ` +
+    `<b>${p.input_tokens.toLocaleString()} tokens</b> and wrote back ` +
+    `<b>${p.output_tokens.toLocaleString()}</b>, on ${esc(p.project)}. Almost all of that ` +
+    `money bought context. The median turn cost ${money(t.median_usd)}, so the shape of this ` +
+    `workload is a long tail of expensive reads, not a steady drip of expensive answers.`;
+
+  $("cache-lede").innerHTML =
+    `${c.hit_rate_percent}% of every input token was served from cache. The identical work ` +
+    `uncached would have cost <b>${money(c.uncached_cost_usd)}</b> instead of ` +
+    `<b>${money(h.cost_usd)}</b>, which is <b>${c.multiple}x</b>. That is ` +
+    `<b>${money(c.saved_usd)}</b> already saved, with no decision to make and no quality risk taken. ` +
+    `It is also four times the largest number any model substitution can offer:`;
+
+  $("counterfactuals").innerHTML =
+    `<div class="cf-row actual"><span class="m">What it actually cost</span>` +
+    `<span class="v">${money(h.cost_usd)}</span><span class="d">measured</span></div>` +
+    (f.counterfactuals || []).map(cf =>
+      `<div class="cf-row"><span class="m">If ${esc(cf.model)} had served every turn</span>` +
+      `<span class="v">${money(cf.cost_usd)}</span>` +
+      `<span class="d">${cf.delta_percent > 0 ? "+" : ""}${cf.delta_percent}%</span></div>`
+    ).join("");
+
+  $("findings-projects").innerHTML = f.by_project.map(p => `
+    <tr>
+      <td>${esc(p.project)}</td>
+      <td class="num">${p.turns.toLocaleString()}</td>
+      <td class="num">${money(p.cost_usd)}</td>
+      <td class="num">${money(p.cost_per_turn_usd)}</td>
+      <td class="num">${p.read_write_ratio.toLocaleString()} : 1</td>
+    </tr>`).join("");
+}
+
 $("period").addEventListener("change", () => load().catch(showError));
 $("source").addEventListener("change", () => load().catch(showError));
 function showError(err) {
@@ -748,6 +961,25 @@ function showError(err) {
     `<div class="empty">Failed to load data: ${esc(err.message)}</div>`);
 }
 load().catch(showError);
+
+// A ledger with no measured build work in it (a fresh install, someone else's
+// deployment) has no findings to state, so the whole study is removed rather
+// than rendered as a row of zeroes claiming a study that never happened.
+getJSON("/findings").then(f => {
+  if (!f.headline || !f.headline.turns) {
+    document.querySelectorAll(".study, .finding").forEach(el => el.remove());
+    const intro = document.querySelector(".section-intro");
+    if (intro) intro.querySelector("h2").textContent = "The gateway";
+    document.querySelector("header h1").textContent = "LLM Cost Gateway";
+    document.querySelector("header .sub").textContent =
+      "An OpenAI-compatible gateway that routes each request on the complexity of the " +
+      "prompt, enforces budgets before money is spent, and records every call.";
+    return;
+  }
+  renderFindings(f);
+}).catch(() => {
+  document.querySelectorAll(".study, .finding").forEach(el => el.remove());
+});
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => (
