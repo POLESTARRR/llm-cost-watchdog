@@ -27,6 +27,7 @@ No API key, no account, nothing leaves the machine.
 | HTML report | 8.4 KB, **zero external references**, renders offline |
 | Deployed site | 23 projects, 8,765 turns, $1,521.56, all sections rendering |
 | CI | tests on push, liveness check twice daily |
+| Quality study | 14 comparisons graded blind, published including the bad result |
 
 ## The finding it is built on
 
@@ -42,6 +43,24 @@ Measured across 23 projects and 8,765 turns:
 and never shrinks, which is why the advice is "start a new session", and why
 that advice is worth automating.
 
+## And the answer to the question underneath all of it
+
+Every cost figure prices a swap to a cheaper model. None of them ask whether the
+cheap answer was any good. So both models ran the same 14 prompts and the pairs
+were graded blind:
+
+| tier the router assigned | compared | held up |
+|---|---:|---:|
+| trivial | 5 | **20%** |
+| moderate | 9 | 11% |
+| complex | 2 | 0% |
+
+Two of sixteen survived. Asked to reverse `'hello'`, the cheap model answered
+`'hell'`. The gap between a 3B and a 1B is wider than between a frontier model
+and its cheap sibling, so the percentages do not transfer, but the direction
+does: **routing on price without measuring quality is a way to save money by
+getting worse answers.**
+
 These are list prices. The work ran on a flat plan costing **$12.92** over the
 same span, and the site never presents the larger number as money spent.
 
@@ -53,8 +72,9 @@ same span, and the site never presents the larger number as money spent.
 - **The router reaches the cheap tier on 10% of requests**, under the 15% bar
   the validator sets for itself. Reported as a miss rather than moved. See
   [/validation](https://llmcostwatchdog.onrender.com/validation).
-- **Shadow quality comparison has no data.** The machinery exists and nothing
-  has run through it, so no claim about answer quality is made anywhere.
+- **The quality study is small.** 14 graded comparisons between a 3B and a 1B
+  local model. The ordering it found is meaningful; the percentages do not
+  transfer to a frontier pair, and the page says so.
 - **`WATCHDOG_IMPORT_KEY` on Render does not match the local one**, so
   `auto_sync.sh` cannot push. The deployed ledger was last synced directly
   against Turso. Fix by copying the value from Render into `.env`.

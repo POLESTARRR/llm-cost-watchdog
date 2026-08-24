@@ -117,6 +117,10 @@ that is also in this repo:
 - **[A complexity classifier](#6c-complexity-routing-the-strategy-that-reads-the-prompt)**
   validated against 1,091 real requests whose outcomes are known, [including
   where it falls short](https://llmcostwatchdog.onrender.com).
+- **A quality study** that finally asks whether the cheap model is good enough.
+  Two of sixteen answers held up. Published in full, including the part that
+  undermines the routing idea, because a cost tool that never checks its output
+  is measuring the wrong thing.
 - **[An MCP server](#8-mcp-tools-reference)** exposing 22 tools, so the same
   data can be queried conversationally from Claude Desktop.
 - **[A live dashboard](https://llmcostwatchdog.onrender.com)** computing every
