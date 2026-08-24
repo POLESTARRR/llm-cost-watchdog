@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-24T16:12:08+00:00",
-  "n_prompts": 1081,
+  "generated_at": "2026-08-24T17:06:07+00:00",
+  "n_prompts": 1091,
   "n_transcripts": 86,
   "tiers": {
     "trivial": {
@@ -9,7 +9,7 @@
       "mean_out": 10232.296296296296,
       "median_steps": 2.5,
       "mean_steps": 13.268518518518519,
-      "share_percent": 10.0
+      "share_percent": 9.9
     },
     "moderate": {
       "n": 526,
@@ -17,32 +17,32 @@
       "mean_out": 15040.079847908744,
       "median_steps": 6.0,
       "mean_steps": 16.129277566539923,
-      "share_percent": 48.7
+      "share_percent": 48.2
     },
     "complex": {
-      "n": 447,
-      "median_out": 9565,
-      "mean_out": 22782.950782997763,
+      "n": 457,
+      "median_out": 9684,
+      "mean_out": 22605.65645514223,
       "median_steps": 9.0,
-      "mean_steps": 19.953020134228186,
-      "share_percent": 41.4
+      "mean_steps": 19.809628008752735,
+      "share_percent": 41.9
     }
   },
   "ranking": {
-    "lift_output": 7.9,
+    "lift_output": 8.0,
     "lift_steps": 3.6,
     "passes": true
   },
   "routing": {
-    "cheap_tier_share_percent": 10.0,
-    "middle_tier_share_percent": 48.7,
+    "cheap_tier_share_percent": 9.9,
+    "middle_tier_share_percent": 48.2,
     "passes": false
   },
   "length_rule_evidence": {
-    "n_borderline": 506,
-    "borderline_share_percent": 46.8,
-    "n_ran_20_plus_steps": 97,
-    "heavy_share_percent": 19.2,
+    "n_borderline": 515,
+    "borderline_share_percent": 47.2,
+    "n_ran_20_plus_steps": 98,
+    "heavy_share_percent": 19.0,
     "worst": [
       {
         "prompt": "Please run this application for me.",
@@ -63,12 +63,12 @@
   },
   "words_only": {
     "moderate": {
-      "n": 807,
-      "share_percent": 74.7
+      "n": 817,
+      "share_percent": 74.9
     },
     "complex": {
       "n": 269,
-      "share_percent": 24.9
+      "share_percent": 24.7
     },
     "trivial": {
       "n": 5,

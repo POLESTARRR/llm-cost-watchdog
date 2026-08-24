@@ -143,6 +143,47 @@ def _transcripts(dir_name: str) -> list[Path]:
     return sorted(d.glob("*.jsonl")) if d.is_dir() else []
 
 
+def discover_projects() -> dict[str, str]:
+    """Every transcript directory on disk, mapped to a project tag.
+
+    PROJECTS below is a hand-written map and was the only source of truth, which
+    meant a project existed to the dashboard only if someone remembered to add a
+    line for it. Twenty-two did not, including the largest one by weekly cost.
+    That is exactly the kind of quiet omission the site is supposed to be
+    incapable of: a total that is wrong because of what was never counted.
+
+    So discovery is now automatic and the hand-written entries become overrides
+    rather than the whole list. They still matter and cannot be derived:
+
+      * a directory encodes the working directory as it was, so a project that
+        has since been renamed or moved still lives under its old name, and only
+        a human knows that ~/Desktop/CART is now ~/Desktop/C2C.
+      * MIXED_PROJECTS covers one directory holding several projects at once,
+        which no amount of path parsing can separate.
+
+    Anything not named in either map is imported under a tag derived from the
+    tail of its path, which is right often enough to be worth doing and is
+    always better than being absent.
+    """
+    found: dict[str, str] = {}
+    if not TRANSCRIPT_ROOT.exists():
+        return found
+
+    for d in sorted(TRANSCRIPT_ROOT.iterdir()):
+        if not d.is_dir() or not any(d.glob("*.jsonl")):
+            continue
+        if d.name in PROJECTS or d.name in MIXED_PROJECTS:
+            continue          # an explicit mapping always wins
+        parts = [x for x in d.name.split("-") if x]
+        if parts and parts[0] == "Users":
+            parts = parts[2:]                      # drop "Users" and the username
+        while parts and parts[0] in ("Desktop", "Documents", "Downloads", "RES", "PROJECTS"):
+            parts.pop(0)
+        tag = "-".join(parts[-3:]).lower() if parts else "home"
+        found[d.name] = tag or "home"
+    return found
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="Show what would be imported, write nothing")
@@ -176,7 +217,7 @@ def main() -> None:
     if args.rebuild and not args.dry_run:
         removed = purge_source(args.source, db_path=args.db_path)
         stale = 0
-        for d in list(PROJECTS) + list(MIXED_PROJECTS):
+        for d in list(PROJECTS) + list(MIXED_PROJECTS) + list(discover_projects()):
             for cp in (TRANSCRIPT_ROOT / d).glob(".*.imported.json"):
                 # Rebuilding the local DB must only clear *local* checkpoints.
                 # A remote checkpoint (`.remote-<slug>.imported.json`) tracks a
@@ -193,7 +234,14 @@ def main() -> None:
     grand_cost, grand_turns = 0.0, 0
     rows: list[tuple[str, int, float]] = []
 
-    for dir_name, tag in PROJECTS.items():
+    # Explicit mappings first, then everything else found on disk. A project
+    # must not be missing from the totals merely because nobody added a line.
+    all_projects = {**PROJECTS, **discover_projects()}
+    discovered_only = set(discover_projects())
+    if discovered_only:
+        print(f"  {len(PROJECTS)} mapped, {len(discovered_only)} discovered automatically\n")
+
+    for dir_name, tag in all_projects.items():
         files = _transcripts(dir_name)
         if not files:
             print(f"  !  {tag:<20} no transcript found at {dir_name}")

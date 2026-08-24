@@ -1,12 +1,12 @@
 # LLM Cost Gateway
 
 **What does it actually cost to build software with an AI agent?** I measured every
-turn of my own, across thirteen projects I built: **4,399 turns and 1.24 billion
-tokens read, worth $868.33 at metered API rates.** No per-token charge ever
-occurred: that work ran on a flat monthly plan which cost **$8.17** over the
-same twelve days, so the larger figure is value delivered, not money spent.
-Both are shown together on the site, because presenting the first alone is the
-one genuinely dishonest thing this page could do. It is itemised, live, at
+turn of my own, across 23 projects: **8,765 turns and 2.43 billion
+tokens read, worth $1,521.56 at metered API rates.** No per-token charge ever
+occurred: that work ran on a flat monthly plan which cost **$12.92** over the
+same span, so the larger figure is value delivered, not money spent. Both are shown
+together on the site, because presenting the first alone is the one genuinely
+dishonest thing this page could do. It is itemised, live, at
 [llmcostwatchdog.onrender.com](https://llmcostwatchdog.onrender.com), computed from
 the ledger on each request so the page cannot drift from the database under it.
 
@@ -14,26 +14,31 @@ The answer was not the one I expected:
 
 | | | |
 |---|---:|---:|
-| Reading context | **$682.27** | 78.5% |
-| One-hour cache-write premium | $91.85 | 10.6% |
-| Generating output | $94.96 | 10.9% |
+| Reading context | **$1,213.32** | 79.7% |
+| One-hour cache-write premium | $146.17 | 9.6% |
+| Generating output | $162.07 | 10.7% |
 
-**The agent read 287 tokens for every one it wrote.** The single most expensive
+**The agent read 314 tokens for every one it wrote.** The single most expensive
 turn cost $6.85: it read 696,926 tokens and wrote back 1,240. The instinct that
 follows from "the AI writes my code" is to ask for shorter answers, and output is
-10.9% of this bill, so that instinct is capped at a tenth of the spend before it
-starts. Keeping the cache warm cost within three dollars of everything the agent
-generated across all thirteen projects.
+10.7% of this bill, so that instinct is capped at a tenth of the spend before it
+starts.
 
-That middle row is there because two components left a 10.6% gap and an
-unexplained remainder is not an answer. It is the surcharge for writing to a
-one-hour cache rather than a five-minute one, 2.0x the input rate against 1.25x.
+That middle row is there because two components left a gap and an unexplained
+remainder is not an answer. It is the surcharge for writing to a one-hour cache
+rather than a five-minute one, 2.0x the input rate against 1.25x.
+
+The finding survived the dataset doubling. An earlier pass covered 13 projects and
+4,407 turns and reported 287:1 with reading at 78.5%; automatic discovery of every
+transcript on disk took it to 23 projects and 8,765 turns, and the split moved to
+314:1 and 79.7%. It was not an artefact of which projects someone remembered
+to list.
 
 Two consequences, and this repo is both of them:
 
-- **Caching is the lever that actually worked.** 97.6% of input tokens came from
-  cache. The identical work uncached would have cost $5,473.34, so it saved
-  $4,605.01 with no decision to make and no quality risk taken. That is more than
+- **Caching is the lever that actually worked.** 98.0% of input tokens came from
+  cache. The identical work uncached would have cost $10,052.62, so it saved
+  $8,531.07 with no decision to make and no quality risk taken. That is more than
   four times the largest number any model substitution can offer.
 - **If the money goes on reading, the question is which model reads your context**,
   and that has to be decided per request, before the call, from the prompt itself.

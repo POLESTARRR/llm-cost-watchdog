@@ -1,19 +1,19 @@
 {
-  "generated_at": "2026-08-24T16:47:31+00:00",
+  "generated_at": "2026-08-24T17:06:00+00:00",
   "current": {
     "project": "P2-JSW",
-    "turns": 1307,
-    "cost_usd": 211.93,
-    "context_now": 512335,
+    "turns": 1391,
+    "cost_usd": 237.05,
+    "context_now": 565634,
     "context_start": 46902,
-    "growth": 10.9,
+    "growth": 12.1,
     "should_restart": true
   },
   "week": {
-    "sessions": 42,
-    "turns": 7688,
-    "cost_usd": 1146.13,
-    "tokens_read": 2278027358,
+    "sessions": 41,
+    "turns": 7768,
+    "cost_usd": 1170.97,
+    "tokens_read": 2323179397,
     "grown_past_threshold": 10,
     "by_project": [
       {
@@ -22,7 +22,7 @@
       },
       {
         "project": "P2-JSW",
-        "cost_usd": 211.93
+        "cost_usd": 237.05
       },
       {
         "project": "FEYMAN",
@@ -38,7 +38,7 @@
       },
       {
         "project": "current-affairs-digest",
-        "cost_usd": 26.19
+        "cost_usd": 25.92
       },
       {
         "project": "subagents",
