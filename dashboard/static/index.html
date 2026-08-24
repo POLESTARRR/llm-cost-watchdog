@@ -344,7 +344,7 @@
   </header>
 
   <div class="study" id="study">
-    <div class="study-nums" id="study-nums"></div>
+    <div class="study-nums" id="study-nums"><div class="study-fig"><div class="n" style="opacity:.35">…</div><div class="l">reading the ledger</div></div></div>
     <p class="study-src" id="study-src"></p>
   </div>
 
@@ -1066,8 +1066,11 @@ getJSON("/findings").then(f => {
     return;
   }
   renderFindings(f);
-}).catch(() => {
-  document.querySelectorAll(".study, .finding").forEach(el => el.remove());
+}).catch((e) => {
+  $("study-nums").innerHTML =
+    `<div class="study-fig"><div class="l">Could not load the measurements ` +
+    `(${esc(e.message)}). The raw numbers are at <code>/findings</code>.</div></div>`;
+  document.querySelectorAll(".finding").forEach(el => el.remove());
 });
 
 function escapeHtml(str) {

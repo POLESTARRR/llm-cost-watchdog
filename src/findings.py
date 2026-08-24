@@ -180,14 +180,30 @@ def _cost_split(events: list[UsageEvent]) -> tuple[float, float, float]:
 PORTFOLIO_SOURCES = "subscription,manual"
 
 
-def compute_findings(source: str = PORTFOLIO_SOURCES) -> Findings:
+def load_turns(source: str = PORTFOLIO_SOURCES) -> list[UsageEvent]:
+    """Every successful turn for `source`, fetched once.
+
+    Exists because /findings was issuing four separate full reads of the same
+    4,399 rows: one for the findings, one per counterfactual, one for the ROI.
+    Against a local SQLite file that is invisible. Against a remote Turso
+    database each one is a network round-trip, and the endpoint took 7.8s, which
+    is 7.8s of blank page where the entire study is supposed to be. Callers that
+    need several views of the same traffic now read it once and pass it down.
+    """
+    return [e for e in get_events_for_period("all_time", source=source) if e.success]
+
+
+def compute_findings(
+    source: str = PORTFOLIO_SOURCES,
+    events: list[UsageEvent] | None = None,
+) -> Findings:
     """Summarise every real turn in the ledger into a set of stated findings.
 
     Defaults to the measured build work. `demo` is excluded and never silently
     mixed in: a seeded row inside a headline is the exact defect that made the
     previous version of this page untrustworthy.
     """
-    events = [e for e in get_events_for_period("all_time", source=source) if e.success]
+    events = load_turns(source) if events is None else events
     f = Findings()
     if not events:
         return f
@@ -246,7 +262,11 @@ def compute_findings(source: str = PORTFOLIO_SOURCES) -> Findings:
     return f
 
 
-def counterfactual(model: str, source: str = PORTFOLIO_SOURCES) -> dict:
+def counterfactual(
+    model: str,
+    source: str = PORTFOLIO_SOURCES,
+    events: list[UsageEvent] | None = None,
+) -> dict:
     """Re-price every recorded turn as if one model had served all of it.
 
     Deliberately named `counterfactual` and not `savings`. It prices a
@@ -256,7 +276,7 @@ def counterfactual(model: str, source: str = PORTFOLIO_SOURCES) -> dict:
     fewer of them. Whether the answers would have held up is what src/shadow.py
     measures, and nothing here should be read as having measured it.
     """
-    events = [e for e in get_events_for_period("all_time", source=source) if e.success]
+    events = load_turns(source) if events is None else events
     if not events:
         return {"model": model, "cost_usd": 0.0, "actual_usd": 0.0, "delta_percent": 0.0}
 

@@ -321,11 +321,15 @@ def findings_endpoint():
     number is derived at call time so the page rendering it cannot drift from
     the database behind it.
     """
-    from src.findings import compute_findings, counterfactual
+    from src.findings import compute_findings, counterfactual, load_turns
 
-    data = compute_findings().as_dict()
+    # One read, shared by every computation below. Each of these used to fetch
+    # the same 4,399 rows for itself, which is free against local SQLite and
+    # four network round-trips against Turso.
+    turns = load_turns()
+    data = compute_findings(events=turns).as_dict()
     data["counterfactuals"] = [
-        counterfactual(m) for m in ("claude-sonnet-5", "claude-haiku-4-5")
+        counterfactual(m, events=turns) for m in ("claude-sonnet-5", "claude-haiku-4-5")
     ]
     # What was actually paid, alongside what the tokens would have cost metered.
     # Carried here so the page cannot render the list price as if it were a
