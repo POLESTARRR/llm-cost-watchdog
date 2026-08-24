@@ -502,3 +502,32 @@ def test_index_hides_validation_until_it_loads(client):
     html = client.get("/").text
     assert 'id="validation"' in html
     assert 'id="validation" hidden' in html
+
+
+def test_findings_never_presents_list_price_as_money_spent(client):
+    """The headline must carry what was actually paid, not just list price.
+
+    Regression with a history: `Source.subscription` exists precisely because
+    conflating flat-fee usage with billed spend was, in this project's own
+    words, "a lie this project told about its own headline number". The study
+    section then reintroduced it by labelling the list-price total "spent".
+    """
+    body = client.get("/findings").json()
+    assert "actually_paid" in body, "findings must carry the real charge alongside list price"
+    paid = body["actually_paid"]
+    assert "list_price_value_usd" in paid
+
+    # With no flat-fee rows there is no charge to contrast against, and the
+    # fixture is entirely demo data. What must never happen is a subscription
+    # total appearing with no statement that it was not billed.
+    if paid.get("calls"):
+        assert "subscription_cost_usd" in paid
+        assert "not money spent" in paid["note"].lower()
+    else:
+        assert "no subscription" in paid["note"].lower()
+
+
+def test_index_does_not_call_list_price_spend(client):
+    html = client.get("/").text
+    assert "spent building them" not in html, "the false headline is back"
+    assert "actually paid" in html

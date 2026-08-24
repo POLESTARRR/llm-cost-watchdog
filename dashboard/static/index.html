@@ -323,7 +323,7 @@
   <header>
     <h1>What does it cost to build software with an AI agent?</h1>
     <div class="sub">I measured every turn of my own, across thirteen projects I actually
-      shipped. This is the bill, itemised, and the infrastructure I built once I had read it.</div>
+      built. This is the bill, itemised, and the infrastructure I built once I had read it.</div>
   </header>
 
   <div class="study" id="study">
@@ -353,7 +353,7 @@
 
   <section class="finding">
     <div class="finding-kicker">The thirteen projects</div>
-    <h2 class="finding-h">Every one of them shipped. This is what the agent cost on each.</h2>
+    <h2 class="finding-h">What the agent cost on each, at metered rates.</h2>
     <div class="table-scroll">
       <table>
         <thead><tr>
@@ -881,19 +881,32 @@ const day = (iso) => {
 function renderFindings(f) {
   const h = f.headline, rw = f.read_vs_write, c = f.caching, t = f.turn_shape;
 
+  // The headline is the pair, never the big number alone. $868 is what these
+  // tokens would have cost through a metered API; the plan they actually ran on
+  // charged $8.17. Presenting the first as "spent" is false, and it is the exact
+  // conflation Source.subscription exists to prevent, so both are always shown
+  // and the smaller one is labelled as the real money.
+  const paid = f.actually_paid || {};
   $("study-nums").innerHTML = [
-    [money(h.cost_usd), "spent building them"],
-    [h.projects, "projects, all shipped"],
+    [money(h.cost_usd), "of work, priced at metered API rates"],
+    [paid.subscription_cost_usd != null ? money(paid.subscription_cost_usd) : "—",
+     "actually paid, on a flat monthly plan"],
+    [h.projects, "projects measured"],
     [compact(h.turns), "agent turns, every one recorded"],
-    [compact(h.input_tokens), "tokens read"],
   ].map(([n, l]) => `<div class="study-fig"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`).join("");
 
+  const cached = (f.caching || {}).hit_rate_percent;
   $("study-src").innerHTML =
-    `Recovered from local Claude Code session transcripts covering ${esc(day(h.first_day))} to ` +
-    `${esc(day(h.last_day))}, and priced with this project's own three-rate model ` +
-    `(cache reads, cache writes, and the one-hour TTL premium bill differently, and ignoring that ` +
-    `overstates a cache-heavy workload several times over). Work on a flat-fee plan, so this is the ` +
-    `list-price value of the tokens, not a charge that appeared on a card.`;
+    `<b>No per-token charge ever occurred.</b> This work ran on a flat-fee Claude Code plan, so ` +
+    `${money(h.cost_usd)} is value delivered rather than money spent, and every figure below ` +
+    `describes how that value was priced, not a bill anyone received. Saying "spent" would be the ` +
+    `single most misleading word available here.<br><br>` +
+    `Recovered from local session transcripts covering ${esc(day(h.first_day))} to ` +
+    `${esc(day(h.last_day))} and priced with this project's own three-rate model, because cache ` +
+    `reads, cache writes and the one-hour TTL premium all bill differently and ignoring that ` +
+    `overstates a cache-heavy workload several times over. The ` +
+    `${compact(h.input_tokens)} input tokens are dominated by re-reads: ${cached}% came from cache, ` +
+    `so that is the same context being consulted repeatedly, not that much distinct text.`;
 
   // Three named parts that sum to the bill. Nothing is left as a residual:
   // the gap between reading and writing turned out to be the cache-TTL

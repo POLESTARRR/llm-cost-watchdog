@@ -1,8 +1,12 @@
 # LLM Cost Gateway
 
 **What does it actually cost to build software with an AI agent?** I measured every
-turn of my own, across thirteen projects I shipped: **4,399 turns, $868.33, 1.24
-billion tokens read.** The bill is itemised, live, at
+turn of my own, across thirteen projects I built: **4,399 turns and 1.24 billion
+tokens read, worth $868.33 at metered API rates.** No per-token charge ever
+occurred: that work ran on a flat monthly plan which cost **$8.17** over the
+same twelve days, so the larger figure is value delivered, not money spent.
+Both are shown together on the site, because presenting the first alone is the
+one genuinely dishonest thing this page could do. It is itemised, live, at
 [llmcostwatchdog.onrender.com](https://llmcostwatchdog.onrender.com), computed from
 the ledger on each request so the page cannot drift from the database under it.
 
