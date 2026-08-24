@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: llm-cost-gateway
+    runtime: python
+    pythonVersion: 3.12
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn dashboard.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: true
+    autoDeploy: true
+
+  - type: background
+    name: keep-warm
+    runtime: python
+    pythonVersion: 3.12
+    buildCommand: pip install httpx
+    startCommand: python scripts/keep_warm.py --base https://llmcostwatchdog.onrender.com --interval 840
+    autoDeploy: true

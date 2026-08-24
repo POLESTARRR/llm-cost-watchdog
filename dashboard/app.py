@@ -18,6 +18,8 @@ from pydantic import BaseModel
 
 load_dotenv()
 
+from contextlib import asynccontextmanager
+
 from src.analyzer import (
     check_budget_status,
     compute_report,
@@ -33,7 +35,7 @@ from src.pricing_drift import check_drift
 from src.router import router_status
 from src.waste import find_waste
 from src.providers import configured_providers
-from src.tracker import get_events_for_period, log_usage_many, parse_sources, source_totals
+from src.tracker import get_events_for_period, init_db, log_usage_many, parse_sources, source_totals
 from src.usage_schema import Source, UsageEvent
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -47,7 +49,14 @@ SOURCE_RE = f"^(all|({_SRC})(,({_SRC}))*)$"
 # not merely unauthenticated. See scripts/import_claude_code_usage.py --remote-url.
 IMPORT_KEY = os.environ.get("WATCHDOG_IMPORT_KEY")
 
-app = FastAPI(title="LLM Cost Gateway", version="2.2.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="LLM Cost Gateway", version="2.2.0", lifespan=lifespan)
 
 # The OpenAI-compatible gateway. Mounted on the same app as the dashboard on
 # purpose: one process, one port, one SQLite file, so `uvicorn dashboard.app:app`
