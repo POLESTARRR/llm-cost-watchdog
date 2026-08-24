@@ -199,3 +199,104 @@ def test_snapshot_reports_growth_and_the_restart_flag(tmp_path, monkeypatch):
     assert snap["current"]["should_restart"] is True
     assert snap["current"]["growth"] > 100
     assert snap["generated_at"]
+
+
+# --- other assistants -----------------------------------------------------
+
+
+def _codex_turn(model="gpt-5.6-terra", inp=10_000, cached=8_000, written=0, out=200, reasoning=50):
+    return {
+        "timestamp": "2026-08-09T17:37:02.171Z",
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "info": {
+                "last_token_usage": {
+                    "input_tokens": inp,
+                    "cached_input_tokens": cached,
+                    "cache_write_input_tokens": written,
+                    "output_tokens": out,
+                    "reasoning_output_tokens": reasoning,
+                },
+                # Running total for the session. Summing THIS instead of
+                # last_token_usage double-counts every earlier turn.
+                "total_token_usage": {"input_tokens": 999_999, "output_tokens": 999_999},
+            },
+        },
+    }
+
+
+def test_codex_sessions_are_read_and_priced(tmp_path, monkeypatch):
+    d = tmp_path / "2026" / "08" / "09"
+    d.mkdir(parents=True)
+    (d / "rollout-x.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"type": "session_meta", "payload": {"cwd": "/Users/x/Desktop/myproj",
+                                             "model": "gpt-5.6-terra"}},
+        _codex_turn(),
+        _codex_turn(inp=20_000, cached=18_000),
+    ]) + "\n")
+    monkeypatch.setattr(ccost, "CODEX_SESSIONS", tmp_path)
+
+    got = ccost.read_codex_sessions()
+    assert len(got) == 1
+    s = got[0]
+    assert s["tool"] == "codex"
+    assert s["project"] == "myproj"
+    assert s["priced"] is True
+    assert len(s["turns"]) == 2
+    assert s["cost"] > 0
+
+
+def test_codex_uses_the_per_turn_count_not_the_running_total(tmp_path, monkeypatch):
+    """total_token_usage accumulates; summing it overstates a long session wildly."""
+    d = tmp_path / "2026" / "08" / "09"
+    d.mkdir(parents=True)
+    (d / "r.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"type": "session_meta", "payload": {"cwd": "/Users/x/p", "model": "gpt-5.6-terra"}},
+        _codex_turn(inp=10_000, cached=0),
+    ]) + "\n")
+    monkeypatch.setattr(ccost, "CODEX_SESSIONS", tmp_path)
+    assert ccost.read_codex_sessions()[0]["turns"] == [10_000]   # not 999,999
+
+
+def test_copilot_sessions_are_counted_but_never_priced(tmp_path, monkeypatch):
+    """Copilot publishes no token counts. Inventing one would defeat the tool."""
+    import sqlite3
+
+    db = tmp_path / "session-store.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT);
+        CREATE TABLE turns (id INTEGER PRIMARY KEY, session_id TEXT,
+                            user_message TEXT, assistant_response TEXT, timestamp TEXT);
+        INSERT INTO sessions VALUES ('s1', '/Users/x/Desktop/thing');
+        INSERT INTO turns (session_id, user_message, timestamp)
+            VALUES ('s1', 'hi', '2026-08-20T10:00:00Z'), ('s1', 'again', '2026-08-20T10:05:00Z');
+    """)
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(ccost, "COPILOT_DB", db)
+
+    got = ccost.read_copilot_sessions()
+    assert len(got) == 1
+    assert got[0]["tool"] == "copilot"
+    assert got[0]["priced"] is False
+    assert got[0]["cost"] == 0.0
+    assert got[0]["message_count"] == 2
+    assert got[0]["turns"] == []     # no context figures exist to report
+
+
+def test_missing_tools_are_simply_absent(tmp_path, monkeypatch):
+    """Not having Codex or Copilot installed is normal, not an error."""
+    monkeypatch.setattr(ccost, "CODEX_SESSIONS", tmp_path / "nope")
+    monkeypatch.setattr(ccost, "COPILOT_DB", tmp_path / "nope.db")
+    assert ccost.read_codex_sessions() == []
+    assert ccost.read_copilot_sessions() == []
+
+
+def test_now_refuses_to_advise_on_an_unpriced_session(tmp_path, monkeypatch, capsys):
+    """Copilot has no context size, so it can never be the subject of the advice."""
+    monkeypatch.setattr(ccost, "TRANSCRIPTS", tmp_path / "none")
+    ccost.cmd_now([{"tool": "copilot", "project": "x", "turns": [], "cost": 0.0,
+                    "priced": False, "message_count": 3, "mtime": 0}])
+    assert "No session with token counts" in capsys.readouterr().out

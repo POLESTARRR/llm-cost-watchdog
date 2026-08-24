@@ -8,8 +8,19 @@ python scripts/ccost.py week       # the last seven days
 python scripts/ccost.py projects   # every project, ranked
 ```
 
-No setup. No API key. No account. It reads the session logs Claude Code already
-writes to `~/.claude/projects`, and never sends anything anywhere.
+No setup. No API key. No account. It reads the logs your assistants already
+write, and never sends anything anywhere.
+
+| assistant | reads | prices |
+|---|---|---|
+| **Claude Code** | `~/.claude/projects` | yes, full token counts |
+| **OpenAI Codex** | `~/.codex/sessions` | yes, full token counts |
+| **GitHub Copilot** | `~/.copilot/session-store.db` | **no** |
+
+Copilot records what was said and never how many tokens it took. It is flat-fee
+with no per-token accounting exposed locally, so its sessions are counted as
+activity and never priced. Inventing the number would defeat the point of the
+tool.
 
 ## What it tells you
 

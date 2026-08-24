@@ -35,6 +35,7 @@ invisible until someone measures it.
 
 import json
 import os
+import sqlite3
 import pathlib
 import sys
 from collections import defaultdict
@@ -45,6 +46,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from src.pricing import PRICING_TABLE, calculate_cost  # noqa: E402
 
 TRANSCRIPTS = pathlib.Path.home() / ".claude" / "projects"
+CODEX_SESSIONS = pathlib.Path.home() / ".codex" / "sessions"
+COPILOT_DB = pathlib.Path.home() / ".copilot" / "session-store.db"
 
 # Context per turn beyond which a fresh session is worth suggesting. Set at the
 # point the measurement above shows the cost has roughly tripled, not at a round
@@ -114,6 +117,120 @@ def _model_of(rec: dict) -> str:
     return ""
 
 
+def read_codex_sessions() -> list[dict]:
+    """OpenAI Codex sessions, from ~/.codex/sessions.
+
+    Codex records the same thing Claude Code does under a different shape: each
+    `token_count` event carries input, cached, cache-write and output counts, so
+    it prices through the identical three-rate model with no special cases.
+
+    `last_token_usage` is the turn; `total_token_usage` is the running total for
+    the session. Summing the running total would count every turn again for each
+    turn that followed it, which on a long session overstates by orders of
+    magnitude, so only the per-turn figure is read.
+    """
+    sessions = []
+    if not CODEX_SESSIONS.exists():
+        return sessions
+
+    for path in sorted(CODEX_SESSIONS.rglob("*.jsonl")):
+        turns, cost, model, cwd = [], 0.0, "", ""
+        for line in path.open(errors="ignore"):
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            payload = rec.get("payload") or {}
+
+            if not model:
+                model = payload.get("model") or model
+            if not cwd:
+                cwd = payload.get("cwd") or cwd
+
+            if payload.get("type") != "token_count":
+                continue
+            use = (payload.get("info") or {}).get("last_token_usage") or {}
+            if not use:
+                continue
+
+            cached = use.get("cached_input_tokens", 0)
+            written = use.get("cache_write_input_tokens", 0)
+            fresh = max(use.get("input_tokens", 0) - cached - written, 0)
+            # Reasoning tokens are billed as output and are not included in
+            # output_tokens, so leaving them out undercounts a reasoning model.
+            out = use.get("output_tokens", 0) + use.get("reasoning_output_tokens", 0)
+            ctx = fresh + cached + written
+            if ctx <= 0:
+                continue
+
+            priced = model if model in PRICING_TABLE else ""
+            if not priced:
+                for known in PRICING_TABLE:
+                    if model.startswith(known):
+                        priced = known
+                        break
+            if priced:
+                cost += calculate_cost(priced, ctx, out, cached, written)
+            turns.append(ctx)
+
+        if turns:
+            name = pathlib.Path(cwd).name if cwd else path.parent.name
+            sessions.append({
+                "tool": "codex", "project": name or "codex", "file": path.name,
+                "turns": turns, "cost": cost, "priced": True,
+                "mtime": path.stat().st_mtime,
+            })
+    return sessions
+
+
+def read_copilot_sessions() -> list[dict]:
+    """GitHub Copilot CLI sessions, from its local SQLite store.
+
+    Copilot records what was said and never how many tokens it took: the `turns`
+    table is user_message, assistant_response, timestamp. It is a flat-fee
+    product with no per-token accounting exposed locally, so there is nothing
+    here to price and guessing a number would be worse than reporting none.
+
+    These sessions are therefore carried with `priced: False` and counted as
+    activity only. A cost tool that quietly invents the number it exists to
+    report has failed at the one thing it is for.
+    """
+    if not COPILOT_DB.exists():
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{COPILOT_DB}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return []
+
+    sessions = []
+    try:
+        rows = conn.execute(
+            "SELECT s.id, s.cwd, COUNT(t.id), MAX(t.timestamp) "
+            "FROM sessions s LEFT JOIN turns t ON t.session_id = s.id GROUP BY s.id"
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+    for sid, cwd, n_turns, last_ts in rows:
+        if not n_turns:
+            continue
+        sessions.append({
+            "tool": "copilot",
+            "project": pathlib.Path(cwd).name if cwd else "copilot",
+            "file": str(sid), "turns": [], "cost": 0.0, "priced": False,
+            "message_count": n_turns,
+            "mtime": COPILOT_DB.stat().st_mtime,
+        })
+    return sessions
+
+
+def read_all_sessions() -> list[dict]:
+    """Every assistant on this machine that leaves something readable behind."""
+    return read_sessions() + read_codex_sessions() + read_copilot_sessions()
+
+
 def read_sessions() -> list[dict]:
     """Every session on disk, with its turns priced."""
     sessions = []
@@ -148,6 +265,7 @@ def read_sessions() -> list[dict]:
 
         if turns:
             sessions.append({
+                "tool": "claude-code", "priced": True,
                 "project": project_name(path.parent.name),
                 "file": path.name,
                 "turns": turns,
@@ -176,7 +294,14 @@ def cmd_now(sessions: list[dict]) -> None:
     if not sessions:
         print("No Claude Code sessions found under ~/.claude/projects")
         return
-    s = max(sessions, key=lambda x: x["mtime"])
+    # Only a session with token counts has a context size to advise on. Copilot
+    # publishes none, so it can never be the subject of "your context has grown".
+    priced = [x for x in sessions if x.get("priced") and x["turns"]]
+    if not priced:
+        print("No session with token counts. Copilot does not publish them; "
+              "Claude Code and Codex do.")
+        return
+    s = max(priced, key=lambda x: x["mtime"])
     turns = s["turns"]
     ctx = turns[-1]
     start = turns[0] if turns else 0
@@ -187,7 +312,8 @@ def cmd_now(sessions: list[dict]) -> None:
     mins = int(ago.total_seconds() // 60)
     ago_s = "just now" if mins < 2 else f"{mins} min ago" if mins < 90 else f"{mins // 60}h ago"
 
-    print(f"\n{BOLD}Most recent session{RESET}  {DIM}{s['project']} · {ago_s}{RESET}")
+    print(f"\n{BOLD}Most recent session{RESET}  "
+          f"{DIM}{s['project']} · {s.get('tool', 'claude-code')} · {ago_s}{RESET}")
     print(f"  {len(turns)} turns, {money(s['cost'])} of model time at list prices")
     print(f"  context now {BOLD}{human(ctx)} tokens{RESET} per turn, "
           f"up from {human(start)} at the start ({growth:.1f}x)")
@@ -215,24 +341,38 @@ def cmd_week(sessions: list[dict]) -> None:
         print("\nNothing in the last seven days.")
         return
 
-    total = sum(s["cost"] for s in recent)
-    turns = sum(len(s["turns"]) for s in recent)
-    read = sum(sum(s["turns"]) for s in recent)
+    priced = [s for s in recent if s.get("priced")]
+    unpriced = [s for s in recent if not s.get("priced")]
+    total = sum(s["cost"] for s in priced)
+    turns = sum(len(s["turns"]) for s in priced)
+    read = sum(sum(s["turns"]) for s in priced)
+
+    by_tool: dict[str, int] = defaultdict(int)
+    for s in recent:
+        by_tool[s.get("tool", "claude-code")] += 1
 
     print(f"\n{BOLD}Last 7 days{RESET}")
-    print(f"  {len(recent)} sessions, {turns:,} turns")
+    print(f"  {len(recent)} sessions across "
+          f"{', '.join(f'{k} ({v})' for k, v in sorted(by_tool.items()))}")
+    print(f"  {turns:,} turns with token counts")
     print(f"  {money(total)} of model time at list prices")
     print(f"  {human(read)} tokens read {DIM}(this is where the money goes){RESET}")
 
     by_project: dict[str, float] = defaultdict(float)
-    for s in recent:
+    for s in priced:
         by_project[s["project"]] += s["cost"]
     print(f"\n  {DIM}by project{RESET}")
     for proj, c in sorted(by_project.items(), key=lambda kv: -kv[1])[:8]:
         bar = "#" * max(1, int(28 * c / max(total, 1e-9)))
         print(f"    {proj[:26]:26} {money(c):>9}  {DIM}{bar}{RESET}")
 
-    heavy = [s for s in recent if s["turns"] and s["turns"][-1] >= RESTART_SUGGEST_TOKENS]
+    if unpriced:
+        msgs = sum(s.get("message_count", 0) for s in unpriced)
+        print(f"\n  {DIM}Also {len(unpriced)} Copilot session(s), {msgs} messages. "
+              f"Copilot publishes no token counts locally, so these are counted "
+              f"but not priced.{RESET}")
+
+    heavy = [s for s in priced if s["turns"] and s["turns"][-1] >= RESTART_SUGGEST_TOKENS]
     if heavy:
         print(f"\n  {YELLOW}{len(heavy)} of these sessions grew past "
               f"{human(RESTART_SUGGEST_TOKENS)} tokens of context.{RESET}")
@@ -240,8 +380,10 @@ def cmd_week(sessions: list[dict]) -> None:
 
 
 def cmd_projects(sessions: list[dict]) -> None:
-    by: dict[str, dict] = defaultdict(lambda: {"cost": 0.0, "turns": 0, "read": 0, "sessions": 0})
-    for s in sessions:
+    by: dict[str, dict] = defaultdict(
+        lambda: {"cost": 0.0, "turns": 0, "read": 0, "sessions": 0, "tools": set()})
+    for s in (x for x in sessions if x.get("priced")):
+        by[s["project"]]["tools"].add(s.get("tool", "claude-code"))
         b = by[s["project"]]
         b["cost"] += s["cost"]
         b["turns"] += len(s["turns"])
@@ -271,7 +413,8 @@ def snapshot(sessions: list[dict]) -> dict:
     """
     import datetime as dt
 
-    current = max(sessions, key=lambda s: s["mtime"])
+    priced = [s for s in sessions if s.get("priced") and s["turns"]] or sessions
+    current = max(priced, key=lambda s: s["mtime"])
     turns = current["turns"]
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
     recent = [s for s in sessions
@@ -315,7 +458,7 @@ def main() -> int:
     cmd = (sys.argv[1] if len(sys.argv) > 1 else "now").lower()
     if cmd == "--snapshot":
         out = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "data/ccost_snapshot.json")
-        sessions = read_sessions()
+        sessions = read_all_sessions()
         if not sessions:
             print("nothing to snapshot")
             return 1
@@ -327,7 +470,7 @@ def main() -> int:
         print(__doc__)
         return 0
 
-    sessions = read_sessions()
+    sessions = read_all_sessions()
     if not sessions:
         print("No priced sessions found. Models in your transcripts may be newer "
               "than this tool's price table.")
