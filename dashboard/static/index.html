@@ -907,6 +907,7 @@ const day = (iso) => {
 
 function renderFindings(f) {
   const h = f.headline, rw = f.read_vs_write, c = f.caching, t = f.turn_shape;
+  const ttlPct = rw.cache_ttl_premium_percent || 0;
 
   // The headline is the pair, never the big number alone. $868 is what these
   // tokens would have cost through a metered API; the plan they actually ran on
@@ -937,6 +938,15 @@ function renderFindings(f) {
     `<b>${money(rw.read_cost_usd)} spent reading</b> against <b>${money(rw.write_cost_usd)} writing</b>.<br><br>` +
     `So the obvious saving, telling it to give shorter answers, cannot help much: ` +
     `writing is only ${rw.write_percent}% of the bill.`;
+
+  // Only the widest band carries text. A 10.6% segment is roughly 110px here and
+  // "Cache writes 10.6%" needs more, so the label used to spill over its
+  // neighbour. Every band is named in the key beneath regardless.
+  const IN_BAR_MIN = 25;
+  const band = (cls, pct, label) =>
+    pct > 0.5
+      ? `<div class="${cls}" style="width:${pct}%">${pct >= IN_BAR_MIN ? esc(label) + " " + pct + "%" : ""}</div>`
+      : "";
 
   $("rw-split").innerHTML =
     band("read", rw.read_percent, "Reading context") +
