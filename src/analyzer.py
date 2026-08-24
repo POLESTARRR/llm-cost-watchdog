@@ -203,7 +203,7 @@ def check_budget_status(period: str = "weekly", source: str | None = RUNTIME_SOU
     return result
 
 
-def subscription_roi(period: str = "all_time") -> dict:
+def subscription_roi(period: str = "all_time", events: list | None = None) -> dict:
     """What a flat-fee plan returned in list-price API value.
 
     Claude Code usage on a Pro/Max plan consumes real tokens at real published
@@ -219,7 +219,14 @@ def subscription_roi(period: str = "all_time") -> dict:
     Claude Pro).
     """
     monthly = float(os.environ.get("WATCHDOG_SUBSCRIPTION_USD_PER_MONTH", "20.00"))
-    events = [e for e in get_events_for_period(period, source="subscription") if e.success]
+    # `events` lets a caller that has already read the ledger hand those rows in
+    # rather than paying for a second read. /findings needs this figure beside
+    # the list price, and fetching 4,399 rows twice in one request costs a whole
+    # network round-trip against a remote database. Rows are re-filtered to
+    # subscription here, so passing a wider set stays correct.
+    if events is None:
+        events = get_events_for_period(period, source="subscription")
+    events = [e for e in events if e.success and e.source == "subscription"]
 
     value = round(sum(e.cost_usd for e in events), 6)
     if not events:

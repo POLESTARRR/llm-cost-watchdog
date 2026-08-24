@@ -335,7 +335,7 @@ def findings_endpoint():
     # Carried here so the page cannot render the list price as if it were a
     # charge. That conflation is the specific dishonesty `Source.subscription`
     # was introduced to prevent, and the headline drifted back into it once.
-    data["actually_paid"] = subscription_roi("all_time")
+    data["actually_paid"] = subscription_roi("all_time", events=turns)
     return data
 
 
