@@ -1,0 +1,27 @@
+name: liveness
+
+# The site outlives active work on it, and the ways it rots are quiet: a host
+# that sleeps and never wakes, an expired database credential, an artifact that
+# stops being copied into the image. Each leaves a page returning HTTP 200 while
+# saying something false. This asks, twice a day, whether it is still coherent.
+on:
+  schedule:
+    - cron: "0 7,19 * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Site to check"
+        default: "https://llmcostwatchdog.onrender.com"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # No dependencies on purpose: check_live.py uses only the standard
+      # library, so this job cannot start failing because of a package.
+      - name: check the published site is still consistent
+        run: python scripts/check_live.py "${{ github.event.inputs.url || 'https://llmcostwatchdog.onrender.com' }}"

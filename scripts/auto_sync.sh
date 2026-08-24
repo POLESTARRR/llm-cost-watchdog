@@ -70,6 +70,13 @@ fi
 "$ROOT/venv/bin/python" "$ROOT/scripts/import_all_projects.py" --remote-url "$SITE"
 status=$?
 
+# Refresh the shipped example of the tool while the transcripts are here to read.
+# It is the only thing on the deployed page that shows ccost doing anything, and
+# it is a file in the repo rather than something the server can recompute, so it
+# goes stale silently unless something rewrites it.
+"$ROOT/venv/bin/python" "$ROOT/scripts/ccost.py" --snapshot "$ROOT/data/ccost_snapshot.json" \
+  && echo "refreshed data/ccost_snapshot.json (commit it to publish)"
+
 if [ $status -ne 0 ]; then
   # A failed sync must not look like a successful one. The most common cause by
   # far is WATCHDOG_IMPORT_KEY here not matching the value set on the host.

@@ -1,0 +1,41 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest tests/ -q
+
+      # The shipped artifacts are the two things on the site that cannot be
+      # recomputed by the server, and both have silently vanished from a build
+      # before. A missing file must fail here rather than on the live page.
+      - name: shipped artifacts are present and readable
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          missing = []
+          for name in ("classifier_validation.json", "ccost_snapshot.json"):
+              p = pathlib.Path("data") / name
+              if not p.exists():
+                  missing.append(f"{name} is not in the repo")
+                  continue
+              try:
+                  json.loads(p.read_text())
+              except ValueError as exc:
+                  missing.append(f"{name} is not valid JSON: {exc}")
+          if missing:
+              print("\n".join(missing)); sys.exit(1)
+          print("both artifacts present and parseable")
+          PY
