@@ -551,8 +551,14 @@ def test_sessions_endpoint_is_honest_when_there_is_nothing_to_read(client, monke
 
     monkeypatch.setattr(ccost, "TRANSCRIPTS", _P("/nonexistent-transcripts"))
     body = client.get("/sessions").json()
-    assert body["available"] is False
-    assert "reason" in body
+
+    # A shipped snapshot means a host with no transcripts still shows what the
+    # tool does, but it must never be presented as the reader's own session.
+    if body["available"]:
+        assert body["is_example"] is True, "somebody else's session shown as the reader's"
+        assert body.get("generated_at"), "an example must be dated"
+    else:
+        assert "reason" in body
 
 
 def test_sessions_endpoint_reports_growth_when_transcripts_exist(client, monkeypatch, tmp_path):

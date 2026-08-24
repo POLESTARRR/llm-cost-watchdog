@@ -257,12 +257,72 @@ def cmd_projects(sessions: list[dict]) -> None:
     print(f"  {'':28}{money(total):>10}  {DIM}total{RESET}")
 
 
+def snapshot(sessions: list[dict]) -> dict:
+    """A shareable example of what this tool says, with no prompt text in it.
+
+    The panel it feeds is local by nature: it reads ~/.claude/projects, which
+    exists on the machine that did the work and nowhere else. That left the
+    deployed site showing a study and no tool at all, so the one thing a reader
+    could act on was invisible to every reader who was not its author.
+
+    This ships the shape of the answer instead. Project names, counts and prices
+    only. No prompts, no file paths, no code: nothing here reveals what was being
+    worked on, which is the property that makes it safe to publish at all.
+    """
+    import datetime as dt
+
+    current = max(sessions, key=lambda s: s["mtime"])
+    turns = current["turns"]
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
+    recent = [s for s in sessions
+              if dt.datetime.fromtimestamp(s["mtime"], tz=dt.timezone.utc) >= cutoff]
+
+    by: dict[str, float] = {}
+    for s in recent:
+        by[s["project"]] = by.get(s["project"], 0.0) + s["cost"]
+
+    return {
+        "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
+        "current": {
+            "project": current["project"],
+            "turns": len(turns),
+            "cost_usd": round(current["cost"], 2),
+            "context_now": turns[-1],
+            "context_start": turns[0],
+            "growth": round(turns[-1] / turns[0], 1) if turns[0] else 1.0,
+            "should_restart": turns[-1] >= RESTART_SUGGEST_TOKENS,
+        },
+        "week": {
+            "sessions": len(recent),
+            "turns": sum(len(s["turns"]) for s in recent),
+            "cost_usd": round(sum(s["cost"] for s in recent), 2),
+            "tokens_read": sum(sum(s["turns"]) for s in recent),
+            "grown_past_threshold": sum(
+                1 for s in recent if s["turns"] and s["turns"][-1] >= RESTART_SUGGEST_TOKENS),
+            "by_project": sorted(
+                ({"project": p, "cost_usd": round(c, 2)} for p, c in by.items()),
+                key=lambda r: -r["cost_usd"])[:8],
+        },
+        "threshold_tokens": RESTART_SUGGEST_TOKENS,
+    }
+
+
 def main() -> int:
     if not TRANSCRIPTS.exists():
         print(f"No Claude Code data at {TRANSCRIPTS}")
         return 1
 
     cmd = (sys.argv[1] if len(sys.argv) > 1 else "now").lower()
+    if cmd == "--snapshot":
+        out = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "data/ccost_snapshot.json")
+        sessions = read_sessions()
+        if not sessions:
+            print("nothing to snapshot")
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(snapshot(sessions), indent=2) + "\n")
+        print(f"wrote {out}")
+        return 0
     if cmd in ("-h", "--help", "help"):
         print(__doc__)
         return 0

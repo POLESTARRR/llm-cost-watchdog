@@ -364,16 +364,30 @@ def sessions_endpoint() -> dict:
     except ImportError as exc:  # pragma: no cover - defensive
         return {"available": False, "reason": f"ccost unavailable: {exc}"}
 
+    def _example() -> dict:
+        """The shipped snapshot, plainly marked as somebody else's numbers.
+
+        Without this a deployed copy showed a study and no tool, so the only
+        thing on the page a reader could act on was invisible to everyone except
+        the one person whose laptop it ran on. `is_example` is not decoration:
+        the panel renders differently on it, because presenting another
+        machine's session as the reader's own would be a straightforward lie.
+        """
+        snap = Path(__file__).resolve().parent.parent / "data" / "ccost_snapshot.json"
+        if not snap.exists():
+            return {"available": False,
+                    "reason": "No Claude Code sessions on this machine, and no example shipped."}
+        try:
+            return {"available": True, "is_example": True, **json.loads(snap.read_text())}
+        except (OSError, ValueError) as exc:
+            return {"available": False, "reason": f"Example unreadable: {exc}"}
+
     if not ccost.TRANSCRIPTS.exists():
-        return {
-            "available": False,
-            "reason": "No Claude Code sessions on this machine. This panel only "
-                      "works where you actually run the assistant.",
-        }
+        return _example()
 
     sessions = ccost.read_sessions()
     if not sessions:
-        return {"available": False, "reason": "No priced sessions found."}
+        return _example()
 
     current = max(sessions, key=lambda s: s["mtime"])
     turns = current["turns"]
@@ -389,6 +403,7 @@ def sessions_endpoint() -> dict:
 
     return {
         "available": True,
+        "is_example": False,
         "current": {
             "project": current["project"],
             "turns": len(turns),

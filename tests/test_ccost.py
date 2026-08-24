@@ -152,3 +152,50 @@ def test_empty_directory_is_not_a_crash(tmp_path, monkeypatch, capsys):
     assert ccost.read_sessions() == []
     ccost.cmd_now([])
     assert "No Claude Code sessions" in capsys.readouterr().out
+
+
+# --- the shipped example --------------------------------------------------
+
+
+def test_snapshot_carries_no_prompt_text_or_paths(tmp_path, monkeypatch):
+    """The snapshot is published, so it must reveal nothing about the work.
+
+    Project names, counts and prices only. A snapshot that leaked a prompt or a
+    file path would be a privacy failure shipped to a public URL, which is worse
+    than having no example at all.
+    """
+    _write(tmp_path, "-Users-x-Desktop-secretproject", [_turn(), _turn(fresh=999_999)])
+    monkeypatch.setattr(ccost, "TRANSCRIPTS", tmp_path)
+
+    snap = ccost.snapshot(ccost.read_sessions())
+    blob = json.dumps(snap)
+
+    assert "secretproject" in blob            # the name is intentionally kept
+    assert "/Users/" not in blob              # absolute paths are not
+    assert "session.jsonl" not in blob        # nor filenames
+
+    # Checked against the key names, not by substring: "context_now" contains
+    # "text", so a naive scan of the serialised blob fails on its own data.
+    def keys(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield k
+                yield from keys(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                yield from keys(v)
+
+    leaky = {"prompt", "content", "message", "preview", "file", "path"}
+    assert not (leaky & set(keys(snap)))
+
+
+def test_snapshot_reports_growth_and_the_restart_flag(tmp_path, monkeypatch):
+    _write(tmp_path, "-Users-x-Desktop-demo", [
+        _turn(fresh=1000), _turn(fresh=1000, cached=500_000),
+    ])
+    monkeypatch.setattr(ccost, "TRANSCRIPTS", tmp_path)
+
+    snap = ccost.snapshot(ccost.read_sessions())
+    assert snap["current"]["should_restart"] is True
+    assert snap["current"]["growth"] > 100
+    assert snap["generated_at"]

@@ -1128,21 +1128,33 @@ getJSON("/sessions").then(v => {
   const K = (n) => n >= 1e9 ? (n/1e9).toFixed(2)+"B" : n >= 1e6 ? (n/1e6).toFixed(1)+"M"
                   : n >= 1e3 ? Math.round(n/1e3)+"K" : String(n);
 
-  $("tool-title").textContent = `Your current session: ${c.project}`;
+  // On the deployed copy this is the author's shipped snapshot, not the
+  // reader's machine. Saying "your session" there would be a plain lie, so the
+  // heading, the framing and the footnote all change.
+  const mine = !v.is_example;
+  $("tool-title").textContent = mine
+    ? `Your current session: ${c.project}`
+    : `What this looks like in use`;
+  if (!mine) {
+    document.querySelector("#tool .finding-kicker").textContent =
+      "The tool, running on the author's machine";
+  }
 
   const perTurnNow = c.context_now, perTurnStart = c.context_start;
   const advice = c.should_restart
-    ? `<div class="tool-advice"><b>Consider starting a new session for your next task.</b><br>` +
-      `Every further message here reads <b>${K(perTurnNow)} tokens</b> before it answers, ` +
-      `against ${K(perTurnStart)} when you began. Context never shrinks inside a session, so ` +
-      `finishing a piece of work is the natural place to start over. It costs nothing.</div>`
+    ? `<div class="tool-advice"><b>${mine ? "Consider starting a new session for your next task."
+        : "It says: start a new session for the next task."}</b><br>` +
+      `Every further message ${mine ? "here" : "in that session"} reads ` +
+      `<b>${K(perTurnNow)} tokens</b> before it answers, against ${K(perTurnStart)} at the start. ` +
+      `Context never shrinks inside a session, so finishing a piece of work is the natural place ` +
+      `to start over. It costs nothing.</div>`
     : `<div class="tool-advice ok">Context is still small. Nothing to do.</div>`;
 
   $("tool-body").innerHTML =
     `<div class="tool-stat">` +
-    `<div><div class="n">${K(c.context_now)}</div><div class="l">tokens read per message now</div></div>` +
-    `<div><div class="n">${c.growth}x</div><div class="l">more than when you started</div></div>` +
-    `<div><div class="n">${c.turns.toLocaleString()}</div><div class="l">messages in this session</div></div>` +
+    `<div><div class="n">${K(c.context_now)}</div><div class="l">tokens read per message</div></div>` +
+    `<div><div class="n">${c.growth}x</div><div class="l">more than at the start</div></div>` +
+    `<div><div class="n">${c.turns.toLocaleString()}</div><div class="l">messages in the session</div></div>` +
     `<div><div class="n">${money(c.cost_usd)}</div><div class="l">at pay-per-use rates</div></div>` +
     `</div>` + advice +
     `<div class="tool-week">Last 7 days: <b>${w.sessions}</b> sessions, ` +
@@ -1150,7 +1162,12 @@ getJSON("/sessions").then(v => {
     (w.grown_past_threshold ? `, and <b>${w.grown_past_threshold}</b> sessions grew past ` +
       `${K(v.threshold_tokens)} of context.` : ".") +
     `<br>Busiest: ` + w.by_project.slice(0,4).map(r =>
-      `${esc(r.project)} ${money(r.cost_usd)}`).join(" · ") + `</div>`;
+      `${esc(r.project)} ${money(r.cost_usd)}`).join(" · ") +
+    (mine ? "" :
+      `<br><span style="color:var(--text-muted)">Real output from the author's own logs on ` +
+      `${esc((v.generated_at || "").slice(0,10))}, project names and prices only. ` +
+      `Run it on your own machine and it reads yours instead: ` +
+      `<code>python scripts/ccost.py</code></span>`) + `</div>`;
 
   $("tool").hidden = false;
 }).catch(() => {});

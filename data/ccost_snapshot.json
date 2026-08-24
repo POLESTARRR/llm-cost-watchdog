@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-08-24T16:47:31+00:00",
+  "current": {
+    "project": "P2-JSW",
+    "turns": 1307,
+    "cost_usd": 211.93,
+    "context_now": 512335,
+    "context_start": 46902,
+    "growth": 10.9,
+    "should_restart": true
+  },
+  "week": {
+    "sessions": 42,
+    "turns": 7688,
+    "cost_usd": 1146.13,
+    "tokens_read": 2278027358,
+    "grown_past_threshold": 10,
+    "by_project": [
+      {
+        "project": "Mum-Rag-assistant",
+        "cost_usd": 440.91
+      },
+      {
+        "project": "P2-JSW",
+        "cost_usd": 211.93
+      },
+      {
+        "project": "FEYMAN",
+        "cost_usd": 185.7
+      },
+      {
+        "project": "C2C",
+        "cost_usd": 159.11
+      },
+      {
+        "project": "~",
+        "cost_usd": 117.17
+      },
+      {
+        "project": "current-affairs-digest",
+        "cost_usd": 26.19
+      },
+      {
+        "project": "subagents",
+        "cost_usd": 5.11
+      }
+    ]
+  },
+  "threshold_tokens": 200000
+}
