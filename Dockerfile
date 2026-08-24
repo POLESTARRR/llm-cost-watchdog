@@ -24,6 +24,16 @@ COPY dashboard/ ./dashboard/
 # is verified from the outside, and they are useless sitting only on a laptop.
 COPY scripts/ ./scripts/
 
+# data/ carries the classifier-validation artifact, which /validation serves and
+# the dashboard renders. It is the one result on the site that cannot be
+# recomputed by the server (its evidence is session transcripts on a developer's
+# laptop), so it has to travel with the image or the section silently vanishes,
+# which is exactly what happened the first time this shipped.
+#
+# Nothing large or private rides along: data/usage.db and the 1.7MB upstream
+# price map are both gitignored and therefore absent from the build context.
+COPY data/ ./data/
+
 EXPOSE 8000
 
 # Render (and most PaaS hosts) inject their own $PORT and expect the app to
