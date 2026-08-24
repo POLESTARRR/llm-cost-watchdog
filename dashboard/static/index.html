@@ -375,12 +375,15 @@
 
   <div class="hero">
     <h2>Point any OpenAI-SDK app at it. No code change.</h2>
-    <p><b>"OpenAI-compatible" is a protocol, not a vendor.</b> It is the wire format
-       every LLM client already speaks, so speaking it is what makes this a drop-in.
-       Requests are routed to <b>Anthropic, OpenAI, Google, or a model on your own
-       machine</b>, whichever tier the prompt needs. The API key's suffix becomes the
-       project name in the ledger, which is how per-project cost gets attributed
-       without the caller passing anything extra.</p>
+    <p><b>This does not send anything to OpenAI.</b> "OpenAI-compatible" names a
+       message format, not a company, in the same way "HTTP-compatible" names a
+       protocol rather than a website. Every LLM client already speaks that format,
+       so a server that also speaks it is a drop-in: you change one environment
+       variable and your app cannot tell the difference. Requests then go to
+       <b>Anthropic, Google, OpenAI, or a model running on your own machine</b>,
+       whichever tier the prompt needs. The API key's suffix becomes the project
+       name in the ledger, which is how per-project cost gets attributed without
+       the caller passing anything extra.</p>
     <pre><span class="c"># your existing app, unmodified</span>
 export OPENAI_BASE_URL=<span id="gw-url">http://localhost:8000</span>/v1
 export OPENAI_API_KEY=wd-<span class="c">my-project</span>
@@ -441,18 +444,26 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
       <div class="note" id="total-calls"></div>
       <div class="note" id="total-split"></div>
     </div>
-    <div class="kpi">
+    <!-- Budget and burn rate are instruments for a system that is currently
+         running. With no metered traffic they do not read "nothing to report",
+         they read "under, 0% of $200" and "projected $0.00", which is a dial
+         pointing confidently at zero and looks broken rather than idle. Worse,
+         the weekly window was catching the ragged final days of a dataset that
+         ended on a fixed date and reporting $20.15, a number that described
+         nothing. They are hidden unless there is live traffic to measure, and
+         restored the moment there is: see toggleOpsKpis(). -->
+    <div class="kpi" id="kpi-budget" hidden>
       <div class="label">Budget</div>
       <div class="value" id="budget-status">-</div>
       <div class="note" id="budget-note"></div>
       <div class="meter"><div id="budget-bar" style="width:0%"></div></div>
     </div>
-    <div class="kpi">
+    <div class="kpi" id="kpi-burn" hidden>
       <div class="label">Projected weekly</div>
       <div class="value" id="burn-projected">-</div>
       <div class="note" id="burn-note"></div>
     </div>
-    <div class="kpi">
+    <div class="kpi" id="kpi-waste" hidden>
       <div class="label">Recoverable</div>
       <div class="value" id="waste-total">-</div>
       <div class="note" id="waste-note"></div>
@@ -494,20 +505,19 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
     </div>
   </section>
 
-  <section>
-    <h2>Cost by project</h2>
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>Project</th><th class="num">Cost (USD)</th></tr></thead>
-        <tbody id="by-project"></tbody>
-      </table>
-    </div>
-  </section>
+  <!-- "Cost by project" lived here and has been removed. The study above
+       already lists every project with turns, cost per turn and read:write
+       ratio, and this table showed the same projects with one column and a
+       different total whenever the filter moved. Two tables of the same thing
+       disagreeing is worse than either alone.
 
-  <section>
-    <h2>Where the money is going to waste</h2>
-    <div id="waste-panel"></div>
-  </section>
+       "Where the money is going to waste" was removed for a stronger reason: it
+       contradicted the finding directly above it. find_waste reported "67.6%
+       recoverable, $446.66 in model switches" on the same page as a measurement
+       showing caching had already captured the win and that a model switch is
+       the smaller, unverified lever. Both cannot be true. The findings section
+       and /levers are the corrected version of that analysis, and the raw
+       numbers remain available at /waste for anyone who wants them. -->
 
   <section>
     <h2>Flagged anomalies</h2>
@@ -607,42 +617,9 @@ function renderRows(tbodyId, obj, providerOf) {
     : `<tr><td colspan="${cols}" class="empty">No data for this period</td></tr>`;
 }
 
-function renderWaste(w) {
-  const el = $("waste-panel");
-  const items = [];
-
-  for (const m of (w.model_switches || []).slice(0, 3)) {
-    items.push({ save: m.estimated_saving_usd,
-      what: `Switch ${m.from_model} → ${m.to_model}`,
-      why: esc(m.action) });
-  }
-  for (const c of w.cache_opportunities.slice(0, 3)) {
-    items.push({ save: c.estimated_saving_usd, what: c.action,
-      why: `${c.calls} calls, ${c.total_input_tokens.toLocaleString()} input tokens, ${(c.cache_hit_rate*100).toFixed(0)}% currently cached` });
-  }
-  for (const d of w.duplicate_calls.slice(0, 3)) {
-    items.push({ save: d.avoidable_cost_usd,
-      what: `Dedupe or cache a prompt sent ${d.times_sent}x to ${d.model}`,
-      why: esc(d.prompt_preview) });
-  }
-  for (const o of w.overpowered_calls.slice(0, 3)) {
-    items.push({ save: o.estimated_saving_usd,
-      what: `Try ${o.suggested_model} instead of ${o.model} for ${o.project_tag}`,
-      why: esc(o.basis) });
-  }
-  items.sort((a, b) => b.save - a.save);
-
-  const r = w.retry_waste;
-  const retryLine = r.failed_calls
-    ? `<div class="action"><div class="top"><div class="what">${r.failed_calls} failed call${r.failed_calls===1?"":"s"} (${(r.failure_rate*100).toFixed(1)}% of traffic)</div><div class="save">${r.wasted_seconds}s lost</div></div><div class="why">${esc(r.recommendation)}</div></div>`
-    : "";
-
-  el.innerHTML =
-    `<div class="headline">Top action: <b>${esc(w.top_action)}</b></div>` +
-    items.map(i => `<div class="action"><div class="top"><div class="what">${esc(i.what)}</div><div class="save">~${usd2(i.save)}</div></div><div class="why">${i.why}</div></div>`).join("") +
-    retryLine +
-    (items.length || r.failed_calls ? "" : `<div class="empty">No waste detected in this period.</div>`);
-}
+// renderWaste() was removed with the panel it drew. It ranked model-switch
+// suggestions that contradicted the measured findings above, and /levers
+// supersedes it. The endpoint still serves the raw numbers at /waste.
 
 function renderProvenance(p, sourceFilter) {
   const el = $("provenance");
@@ -817,7 +794,14 @@ async function load() {
   $("waste-note").textContent = waste.recoverable_usd > 0
     ? `up to ${waste.recoverable_percent}% of spend · upper bound`
     : "nothing obviously recoverable";
-  renderWaste(waste);
+
+  // Operational dials only appear when there is something operating. `live` is
+  // the only source that represents a running system, so it gates them; the
+  // study above stands on its own without them.
+  const liveCalls = (report.calls_by_source || {}).live || 0;
+  for (const id of ["kpi-budget", "kpi-burn", "kpi-waste"]) {
+    $(id).hidden = liveCalls === 0;
+  }
 
   $("cache-saved").textContent = usd2(report.cache_savings_usd);
   const totalWithout = report.total_cost_usd + report.cache_savings_usd;
@@ -830,7 +814,6 @@ async function load() {
   const providerOfModel = {};
   for (const r of providers.breakdown) for (const m of r.models_used) providerOfModel[m] = r.provider;
   renderRows("by-model", report.breakdown_by_model, (m) => providerOfModel[m] || "unknown");
-  renderRows("by-project", report.breakdown_by_project, null);
 
   // Dashboard shows the 2 most severe rather than the full list, full
   // fidelity is still available via the flag_anomalies MCP tool / API.
