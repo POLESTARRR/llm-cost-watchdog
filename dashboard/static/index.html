@@ -489,6 +489,23 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
     <p class="cf-caveat" id="val-method"></p>
   </section>
 
+  <section class="finding" id="quality" hidden>
+    <div class="finding-kicker">The question the router was assuming</div>
+    <h2 class="finding-h">Is the cheap model good enough? I finally measured it.</h2>
+    <p class="finding-lede" id="quality-lede"></p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Tier the router assigned</th><th class="num">Compared</th>
+          <th class="num">Held up</th><th class="num">Acceptance</th>
+        </tr></thead>
+        <tbody id="quality-tiers"></tbody>
+      </table>
+    </div>
+    <div class="priciest" id="quality-example"></div>
+    <p class="cf-caveat" id="quality-caveat"></p>
+  </section>
+
   <div class="section-intro" id="ledger-intro">
     <h2>The raw data behind everything above</h2>
     <p>Both things live in one table. <b>Measured build work</b> is the thirteen
@@ -1170,6 +1187,52 @@ getJSON("/sessions").then(v => {
       `<code>python scripts/ccost.py</code></span>`) + `</div>`;
 
   $("tool").hidden = false;
+}).catch(() => {});
+
+// Quality evidence. Everything else on this page prices a substitution; this
+// is the only thing that judges one, so it is stated with its limits attached.
+getJSON("/shadow").then(q => {
+  const tiers = q && q.by_tier;
+  if (!tiers) return;
+  const scored = Object.values(tiers).reduce((a, t) => a + (t.scored || 0), 0);
+  if (!scored) return;
+
+  const ok = Object.values(tiers).reduce((a, t) => a + (t.acceptable || 0), 0);
+  $("quality-lede").innerHTML =
+    `Every other number here prices a swap to a cheaper model. None of them ask whether the ` +
+    `cheap model's answer was any good, and routing is worthless if it is not. So I ran both ` +
+    `models over the same ${scored} prompts and graded the pairs blind.<br><br>` +
+    `<b>${ok} of ${scored} held up.</b> Not the result I was hoping for, and the more useful one:`;
+
+  $("quality-tiers").innerHTML = ["trivial", "moderate", "complex"].map(k => {
+    const t = tiers[k];
+    if (!t || !t.scored) return "";
+    const pct = Math.round(100 * (t.acceptable || 0) / t.scored);
+    const col = pct >= 60 ? "var(--status-good)" : pct >= 30 ? "var(--status-warning)" : "var(--status-critical)";
+    return `<tr><td>${esc(k)}</td><td class="num">${t.scored}</td>` +
+           `<td class="num">${t.acceptable || 0}</td>` +
+           `<td class="num" style="color:${col};font-weight:700">${pct}%</td></tr>`;
+  }).join("");
+
+  $("quality-example").innerHTML =
+    `<b>What "inadequate" looks like.</b> Asked to reverse the string <code>'hello'</code> in ` +
+    `Python, the capable model wrote <code>print('hello'[::-1])</code>. The cheap one answered ` +
+    `<code>'hell'</code>: not reversed, and a character short. That is a task at the very ` +
+    `bottom of the difficulty range, and it still failed.`;
+
+  $("quality-caveat").innerHTML =
+    `<b>What this does and does not show.</b> The pair here is a 3B and a 1B local model, a far ` +
+    `wider capability gap than the one between a frontier model and its cheap sibling, and ` +
+    `${scored} prompts is a small sample graded partly by another local model. So the percentages ` +
+    `do not transfer to Sonnet against Haiku.<br><br>` +
+    `What does transfer is the shape: acceptance falls as the router's tier rises, which is the ` +
+    `ordering the classifier claimed and a second independent check of it. And the direction is ` +
+    `a warning worth stating plainly. <b>Routing on price without measuring quality is a way to ` +
+    `save money by getting worse answers</b>, and every cost figure on this page is silent about ` +
+    `that until something grades the output. This is that something, and it says the cheap tier ` +
+    `has to earn its place rather than being assumed into it.`;
+
+  $("quality").hidden = false;
 }).catch(() => {});
 
 getJSON("/validation")

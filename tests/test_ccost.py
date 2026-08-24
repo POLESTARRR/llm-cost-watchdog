@@ -548,3 +548,51 @@ def test_install_refuses_to_touch_malformed_settings(tmp_path, monkeypatch, caps
 
     assert ccost.cmd_install_hook() == 1
     assert settings.read_text() == "{ this is not json", "clobbered a file it could not parse"
+
+
+# --- the growth chart -----------------------------------------------------
+
+
+def _long_session(shape):
+    return {"tool": "claude-code", "project": "p", "turns": shape,
+            "cost": 1.0, "priced": True, "mtime": 1}
+
+
+def test_growth_curve_buckets_by_position_not_turn_number():
+    """Sessions of different lengths have to be comparable.
+
+    The tenth turn of a 20-turn session and the hundredth of a 200-turn one are
+    the same point in the arc. Bucketing by absolute turn number would let one
+    very long session dominate every bucket it reaches and leave the rest empty.
+    """
+    short = _long_session([i * 1000 for i in range(1, 21)])
+    long_ = _long_session([i * 1000 for i in range(1, 201)])
+    curve = ccost.context_growth_curve([short, long_])
+    assert len(curve) == 10
+    assert curve == sorted(curve), "context should rise monotonically here"
+
+
+def test_growth_curve_ignores_short_sessions():
+    curve = ccost.context_growth_curve([_long_session([1, 2, 3])])
+    assert curve == [], "a three-turn session cannot describe an arc"
+
+
+def test_growth_chart_is_inline_svg_with_no_dependencies():
+    """The report has to survive email, file:// and the passage of years."""
+    svg = ccost._growth_svg([100, 200, 300, 400, 500, 600, 700, 800, 900, 1000])
+    assert svg.startswith("<svg")
+    assert svg.count("<rect") == 10
+    assert "http" not in svg
+    assert "<script" not in svg
+    assert "<title>" in svg, "bars should be hoverable, and readable by a screen reader"
+
+
+def test_growth_chart_is_omitted_when_there_is_no_curve():
+    assert ccost._growth_svg([]) == ""
+
+
+def test_report_embeds_the_chart_when_sessions_are_long_enough():
+    sessions = [_long_session([i * 1000 for i in range(1, 41)]) for _ in range(3)]
+    html = ccost.build_report(sessions)
+    assert "<svg" in html
+    assert "Context grows" in html

@@ -482,6 +482,65 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}tr:last-child td{border-
 """
 
 
+
+def context_growth_curve(sessions: list[dict], min_turns: int = 20) -> list[int]:
+    """Median context per turn at each tenth of a session, across long sessions.
+
+    This is the shape the whole tool argues from, and it is worth drawing rather
+    than asserting. Bucketing by *position* rather than by turn number is what
+    makes sessions of different lengths comparable: the tenth turn of a 20-turn
+    session and the hundredth of a 200-turn one are the same point in the arc.
+    """
+    import statistics
+    from collections import defaultdict
+
+    buckets: dict[int, list[int]] = defaultdict(list)
+    for s in sessions:
+        turns = s.get("turns") or []
+        if len(turns) < min_turns:
+            continue
+        n = len(turns)
+        for i, ctx in enumerate(turns):
+            buckets[min(int(10 * i / n), 9)].append(ctx)
+    if len(buckets) < 10:
+        return []
+    return [int(statistics.median(buckets[i])) for i in range(10)]
+
+
+def _growth_svg(curve: list[int]) -> str:
+    """An inline SVG bar chart. No library, no script, no external request.
+
+    Drawn as a string because the report has to survive being emailed, opened
+    from a file:// URL with the network off, and read years from now. Anything
+    that needs fetching fails all three.
+    """
+    if not curve:
+        return ""
+    peak = max(curve) or 1
+    W, H, PAD = 640, 150, 22
+    bar = (W - 2 * PAD) / len(curve) - 6
+    bars, labels = [], []
+    for i, v in enumerate(curve):
+        h = max(3, (v / peak) * (H - 46))
+        x = PAD + i * ((W - 2 * PAD) / len(curve))
+        y = H - 22 - h
+        shade = 0.35 + 0.65 * (v / peak)
+        bars.append(
+            f'<rect x="{x:.0f}" y="{y:.0f}" width="{bar:.0f}" height="{h:.0f}" '
+            f'rx="3" fill="currentColor" opacity="{shade:.2f}"><title>'
+            f'{i * 10}-{i * 10 + 10}% through a session: {v:,} tokens</title></rect>'
+        )
+        if i in (0, 4, 9):
+            labels.append(
+                f'<text x="{x + bar / 2:.0f}" y="{H - 6}" font-size="10" '
+                f'text-anchor="middle" fill="currentColor" opacity=".55">'
+                f'{"start" if i == 0 else "halfway" if i == 4 else "end"}</text>'
+            )
+    return (f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" '
+            f'aria-label="Context per message grows across a session">'
+            + "".join(bars) + "".join(labels) + "</svg>")
+
+
 def build_report(sessions: list[dict]) -> str:
     """One self-contained HTML file: no server, no key, no network.
 
@@ -574,6 +633,19 @@ def build_report(sessions: list[dict]) -> str:
     <th class=n>messages</th><th class=n>sessions</th><th class=n>read</th></tr></thead>
     <tbody>{rows}</tbody>
   </table></div>
+</div>
+<div class=card>
+  <h2>Context grows for as long as a session lasts</h2>
+  <div style="color:var(--read)">{_growth_svg(context_growth_curve(priced))}</div>
+  {(
+    "<p class=note style='margin-top:.4rem'>Median context per message at each tenth of a "
+    "session, across your " + str(sum(1 for s in priced if len(s['turns']) >= 20)) +
+    " longest sessions. By the end, each message carries <b>" +
+    f"{max(context_growth_curve(priced)) / max(context_growth_curve(priced)[0], 1):.1f}x</b>"
+    " what it carried at the start. Nothing you do makes it go back down, which is why "
+    "finishing a piece of work and starting fresh is the only lever here that costs nothing."
+    "</p>"
+  ) if context_growth_curve(priced) else ""}
 </div>
 <div class=card>
   <h2>Why reading is the number that matters</h2>
