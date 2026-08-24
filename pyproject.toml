@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ccost"
+version = "1.0.0"
+description = "What your AI coding assistant costs, and when to start a new session"
+readme = "CCOST.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Dhruv Sharma" }]
+keywords = ["llm", "cost", "claude-code", "codex", "copilot", "tokens", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Build Tools",
+]
+
+# ccost reads local files and prices them. It needs nothing from the network,
+# and that is the whole reason it works offline, on a plane, and after any of
+# these vendors change their APIs. The heavier server dependencies belong to the
+# dashboard and stay in requirements.txt rather than being forced on someone who
+# only wants the CLI.
+dependencies = []
+
+[project.optional-dependencies]
+dashboard = [
+    "fastapi>=0.141",
+    "uvicorn>=0.52",
+    "pydantic>=2.13",
+    "python-dotenv>=1.2",
+    "httpx>=0.28",
+]
+providers = [
+    "anthropic>=0.120",
+    "openai>=2.53",
+    "google-generativeai>=0.8",
+]
+mcp = ["mcp>=2.0"]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/POLESTARRR/llm-cost-watchdog"
+Report = "https://llmcostwatchdog.onrender.com"
+
+[project.scripts]
+ccost = "ccost_cli:main"
+
+[tool.setuptools]
+# The CLI is one module plus the pricing table it shares with the rest of the
+# project. Listed explicitly so `pip install ccost` does not drag in the
+# dashboard, the gateway or the provider SDKs.
+py-modules = ["ccost_cli"]
+packages = ["src", "src.providers"]
+
+[tool.setuptools.package-data]
+src = ["*.json"]

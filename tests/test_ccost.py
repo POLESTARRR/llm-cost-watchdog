@@ -355,3 +355,36 @@ def test_report_handles_a_machine_with_only_copilot(tmp_path):
     html = ccost.build_report(only)
     assert "<title>" in html
     assert "Start a new session" not in html
+
+
+# --- packaging ------------------------------------------------------------
+
+
+def test_console_entry_point_resolves():
+    """`ccost` must be a real command, not `python scripts/ccost.py`.
+
+    The difference is entirely perception until someone tries to use it from
+    another directory, at which point it is the difference between a tool and a
+    script in somebody's repo.
+    """
+    import ccost_cli
+
+    assert callable(ccost_cli.main)
+    assert ccost_cli.main is ccost.main
+
+
+def test_cli_declares_no_runtime_dependencies():
+    """Reading local files and pricing them needs nothing from the network.
+
+    That is what makes it work offline and keep working after any of these
+    vendors change their APIs, so the dashboard's server stack must not be
+    forced on someone who only wants the CLI.
+    """
+    import pathlib
+    import tomllib
+
+    cfg = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+    assert cfg["project"]["dependencies"] == []
+    assert "ccost" in cfg["project"]["scripts"]
+    # The heavy pieces stay opt-in.
+    assert "dashboard" in cfg["project"]["optional-dependencies"]

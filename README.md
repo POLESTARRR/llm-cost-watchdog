@@ -1,145 +1,109 @@
-# LLM Cost Gateway
+# ccost
 
-**What does it actually cost to build software with an AI agent?** I measured every
-turn of my own, across 23 projects: **8,765 turns and 2.43 billion
-tokens read, worth $1,521.56 at metered API rates.** No per-token charge ever
-occurred: that work ran on a flat monthly plan which cost **$12.92** over the
-same span, so the larger figure is value delivered, not money spent. Both are shown
-together on the site, because presenting the first alone is the one genuinely
-dishonest thing this page could do. It is itemised, live, at
-[llmcostwatchdog.onrender.com](https://llmcostwatchdog.onrender.com), computed from
-the ledger on each request so the page cannot drift from the database under it.
+**Find out what your AI coding assistant actually costs, and when to start a new session.**
 
-The answer was not the one I expected:
+```bash
+pip install -e .
+ccost
+```
+
+```
+Most recent session  P2-JSW · claude-code · just now
+  1450 turns, $257 of model time at list prices
+  context now 607K tokens per turn, up from 47K at the start (13.0x)
+
+  Consider starting a new session for your next task.
+  Each further turn here reads 607K tokens before it answers.
+  Roughly $0.287 per turn now against $0.043 fresh, about 7x.
+```
+
+No API key. No account. No signup. It reads the session logs your assistants
+already write to your own disk, prices them, and never sends anything anywhere.
+
+| | |
+|---|---|
+| `ccost` | what is happening in your current session |
+| `ccost week` | the last seven days, by project |
+| `ccost projects` | every project you have ever worked on, ranked |
+| `ccost report` | a self-contained HTML file you can email or host |
+
+### Which assistants it reads
+
+| assistant | reads | prices |
+|---|---|---|
+| **Claude Code** | `~/.claude/projects` | yes, full token counts |
+| **OpenAI Codex** | `~/.codex/sessions` | yes, full token counts |
+| **GitHub Copilot** | `~/.copilot/session-store.db` | **no** |
+
+Copilot records what was said and never how many tokens it took. It is flat-fee
+with no per-token accounting exposed locally, so its sessions are counted as
+activity and never priced. Inventing that number would defeat the point of the
+tool.
+
+---
+
+## Why "start a new session" is the advice
+
+Because the money is not where people think it is.
+
+I measured every request I sent while building **23 projects**: **8,765 turns,
+2.43 billion tokens read.** The bill splits three ways, and they sum to 100%:
 
 | | | |
 |---|---:|---:|
-| Reading context | **$1,213.32** | 79.7% |
-| One-hour cache-write premium | $146.17 | 9.6% |
-| Generating output | $162.07 | 10.7% |
+| Reading context | **$1,212.68** | 79.7% |
+| One-hour cache-write premium | $145.79 | 9.6% |
+| Generating output | $163.09 | 10.7% |
 
-**The agent read 314 tokens for every one it wrote.** The single most expensive
-turn cost $6.85: it read 696,926 tokens and wrote back 1,240. The instinct that
-follows from "the AI writes my code" is to ask for shorter answers, and output is
-10.7% of this bill, so that instinct is capped at a tenth of the spend before it
-starts.
+**The assistant read 314 tokens for every one it wrote.** The most expensive
+single request cost $6.85: it read 696,926 tokens and replied with 1,240.
 
-That middle row is there because two components left a gap and an unexplained
-remainder is not an answer. It is the surcharge for writing to a one-hour cache
-rather than a five-minute one, 2.0x the input rate against 1.25x.
+So "ask for shorter answers" cannot help much, because writing is a tenth of the
+bill. What *does* matter is how much context each request carries, and context
+accumulates inside a session and never shrinks:
 
-The finding survived the dataset doubling. An earlier pass covered 13 projects and
-4,407 turns and reported 287:1 with reading at 78.5%; automatic discovery of every
-transcript on disk took it to 23 projects and 8,765 turns, and the split moved to
-314:1 and 79.7%. It was not an artefact of which projects someone remembered
-to list.
+| position in session | context per turn | vs the start |
+|---|---:|---:|
+| first 10% | 60,058 | 1.0x |
+| 40-50% | 276,452 | 4.6x |
+| last 10% | 337,322 | **5.6x** |
 
-Two consequences, and this repo is both of them:
+The same question costs five times more at the end of a long session than at the
+beginning, and nothing in any of these tools tells you. That is the one lever
+that costs nothing to pull: when you finish a piece of work, start a new session
+for the next one.
 
-- **Caching is the lever that actually worked.** 98.0% of input tokens came from
-  cache. The identical work uncached would have cost $10,052.62, so it saved
-  $8,531.07 with no decision to make and no quality risk taken. That is more than
-  four times the largest number any model substitution can offer.
-- **If the money goes on reading, the question is which model reads your context**,
-  and that has to be decided per request, before the call, from the prompt itself.
+**These are list prices, not a bill.** That work ran on a flat monthly plan
+costing **$12.92** over the same span, so the larger figure is what the same
+tokens would cost through a metered API. It is the only way to compare one
+session against another, and it is never presented as money spent.
 
-So the second half of this project is the gateway that decides it: a self-hosted
-**OpenAI-compatible endpoint** that routes each request to the cheapest model that
-can actually handle it, enforces budgets before money is spent, and records every
-call in a ledger you own, across **Anthropic, OpenAI, Google, and locally-hosted
-models**.
-
-Adoption is one environment variable:
-
-```bash
-export OPENAI_BASE_URL=http://localhost:8000/v1
-export OPENAI_API_KEY=wd-my-project        # the suffix names the project in the ledger
-```
-
-Any app built on the OpenAI SDK is now tracked, routed, budget-enforced and failed-over **without one line of its source changing**. Ask it for `group:ladder` instead of a model name and it classifies your prompt and picks the tier: mechanical work goes to a free local model, architectural work goes to the frontier one.
-
-It is also an **MCP server**, so you can ask Claude Desktop *"what did I spend this week?"*, and a browser dashboard.
+The finding survived the dataset doubling. An earlier pass covered 13 projects
+and 4,407 turns and reported 287:1 with reading at 78.5%; automatic discovery of
+every transcript on disk took it to 23 projects and 8,765 turns, and the split
+moved to 314:1 and 79.7%. It was not an artefact of which projects happened to
+be on a list.
 
 ---
 
-## Quick start (2 minutes)
+## The rest of the project
 
-**1. Set two env vars:**
-```bash
-export OPENAI_BASE_URL=https://llmcostwatchdog.onrender.com/v1
-export OPENAI_API_KEY=wd-myproject
-```
+`ccost` is the part you run daily. The finding above came out of a larger system
+that is also in this repo:
 
-**2. Run your code normally** (no code changes needed):
-```python
-from openai import OpenAI
-client = OpenAI()
-response = client.chat.completions.create(
-    model="group:ladder",  # routes by prompt complexity
-    messages=[{"role": "user", "content": "..."}]
-)
-```
+- **[An OpenAI-compatible gateway](#6a-the-gateway-adoption-without-a-code-change)**
+  that routes each request to a model tier chosen from the prompt *and* the size
+  of the conversation carrying it. One environment variable, no code changes.
+- **[A complexity classifier](#6c-complexity-routing-the-strategy-that-reads-the-prompt)**
+  validated against 1,091 real requests whose outcomes are known, [including
+  where it falls short](https://llmcostwatchdog.onrender.com).
+- **[An MCP server](#8-mcp-tools-reference)** exposing 22 tools, so the same
+  data can be queried conversationally from Claude Desktop.
+- **[A live dashboard](https://llmcostwatchdog.onrender.com)** computing every
+  figure from the ledger per request, so the page cannot drift from its database.
 
-**3. Watch the ledger:**
-```
-https://llmcostwatchdog.onrender.com/calls?source=live
-```
-
-See each call, model chosen, cost, latency, and complexity tier.
-
-**For your first test:** `bash scripts/setup_project.sh myproject`
-
-**Full docs:** [INTEGRATION.md](INTEGRATION.md)
-
----
-
-### Why the gateway exists
-
-The earlier version of this project was a Python wrapper you imported. It had a ledger, a router, guardrails, waste detection and 360 passing tests, and it had recorded exactly **zero** live calls, including from its author's own thirteen other projects. Adopting it meant rewriting every LLM call you had; that price was higher than the benefit, every time, for everyone.
-
-The one component that did collect real data was the importer, precisely because it required no integration at all: it read files that already existed. The gateway is that lesson applied to the live path.
-
-### What changed, and what didn't
-
-The gateway is **purely additive**. Every capability the watchdog had still
-works, through the same code paths, and the wrapper it was built around is still
-a supported entry point, it is now the gateway's engine rather than its only
-front door.
-
-| | Watchdog (before) | Gateway (now) |
-|---|---|---|
-| **Adoption cost** | rewrite every LLM call to `call_llm()` | one env var, or import the wrapper as before |
-| **Entry points** | Python import | Python import **+** `/v1/chat/completions` **+** MCP **+** dashboard |
-| **Providers** | Anthropic · OpenAI · Google | + **Ollama** (local, $0.00/token) |
-| **Routing strategies** | cheapest · lowest-latency · lowest-failure · shuffle | + **complexity** (reads the prompt, not the ledger) |
-| **Streaming** | — | real SSE, all 4 providers, **measured TTFT** |
-| **Tool calling** | — | Anthropic · OpenAI · Ollama, full agent loop |
-| **Quality evidence** | none (`simulate_routing` priced switches, never judged them) | **shadow comparison + grading** |
-| **Cost attribution** | per project, set in code | per project, **from the API key** |
-| **MCP tools** | 16 | **21** |
-| **HTTP endpoints** | 15 | **20** |
-| **Test files / tests** | 13 / 360 | **19 / 462** |
-| **Live rows in the ledger** | **0** | real traffic, with real failures |
-
-Everything below carries over untouched: the [three-rate pricing model](#1-the-problem)
-(cache reads, cache writes, the 1-hour TTL split, OpenAI's long-context
-surcharge), [anomaly detection](#3-the-anomaly-detection-formula),
-[guardrails](#6-guardrails-the-part-that-stops-spend),
-[waste finding](#7-finding-waste), [provenance](#8a-provenance--is-this-number-real),
-subscription-vs-billed accounting, pricing-drift checks, the weekly agentic
-digest, Turso persistence, and the Claude Code transcript importer.
-
-Three things were **changed** rather than added, each because the live path
-exposed a defect the ledger alone could not:
-
-- **`WATCHDOG_ROUTING_STRATEGY` now resolves at call time.** It was read at
-  import time while `model_groups()` was read at call time, so a running gateway
-  routed `cheapest` while its own `/router` endpoint reported `complexity`.
-- **Fallbacks are recorded.** A 429 that failed over within a group returned a
-  model the decision record never named, which reads as a routing bug and is in
-  fact failover working. `fell_back_from` closes that.
-- **`UsageEvent` gained `ttft_ms`.** Added alongside `latency_ms`, never
-  replacing it, so streamed and non-streamed calls stay comparable.
+Everything runs at $0: local models via Ollama, SQLite locally, a free hosted
+database when deployed.
 
 ---
 
