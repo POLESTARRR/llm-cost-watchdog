@@ -1,31 +1,36 @@
 # LLM Cost Gateway
 
 **What does it actually cost to build software with an AI agent?** I measured every
-turn of my own, across thirteen projects I shipped: **4,407 turns, $865.48, 1.25
-billion tokens read.** The bill is itemised at
-[llmcostwatchdog.onrender.com](https://llmcostwatchdog.onrender.com).
+turn of my own, across thirteen projects I shipped: **4,399 turns, $868.33, 1.24
+billion tokens read.** The bill is itemised, live, at
+[llmcostwatchdog.onrender.com](https://llmcostwatchdog.onrender.com), computed from
+the ledger on each request so the page cannot drift from the database under it.
 
 The answer was not the one I expected:
 
 | | | |
 |---|---:|---:|
-| Reading context | **$679.54** | 78.5% |
-| One-hour cache-write premium | $91.88 | 10.6% |
-| Generating output | $94.06 | 10.9% |
+| Reading context | **$682.27** | 78.5% |
+| One-hour cache-write premium | $91.85 | 10.6% |
+| Generating output | $94.96 | 10.9% |
 
-**The agent read 292 tokens for every one it wrote.** The single most expensive
+**The agent read 287 tokens for every one it wrote.** The single most expensive
 turn cost $6.85: it read 696,926 tokens and wrote back 1,240. The instinct that
 follows from "the AI writes my code" is to ask for shorter answers, and output is
 10.9% of this bill, so that instinct is capped at a tenth of the spend before it
 starts. Keeping the cache warm cost within three dollars of everything the agent
-generated all month.
+generated across all thirteen projects.
+
+That middle row is there because two components left a 10.6% gap and an
+unexplained remainder is not an answer. It is the surcharge for writing to a
+one-hour cache rather than a five-minute one, 2.0x the input rate against 1.25x.
 
 Two consequences, and this repo is both of them:
 
-- **Caching is the lever that actually worked.** 97.7% of input tokens came from
-  cache. The identical work uncached would have cost $5,479.66, so it saved
-  $4,614.17 with no decision to make and no quality risk taken. That is four times
-  the largest number any model substitution can offer.
+- **Caching is the lever that actually worked.** 97.6% of input tokens came from
+  cache. The identical work uncached would have cost $5,473.34, so it saved
+  $4,605.01 with no decision to make and no quality risk taken. That is more than
+  four times the largest number any model substitution can offer.
 - **If the money goes on reading, the question is which model reads your context**,
   and that has to be decided per request, before the call, from the prompt itself.
 
