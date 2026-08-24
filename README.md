@@ -26,6 +26,26 @@ already write to your own disk, prices them, and never sends anything anywhere.
 | `ccost week` | the last seven days, by project |
 | `ccost projects` | every project you have ever worked on, ranked |
 | `ccost report` | a self-contained HTML file you can email or host |
+| `ccost install-hook` | **warn me automatically, mid-session, without being asked** |
+
+### Being told instead of asking
+
+```bash
+ccost install-hook
+```
+
+Registers a `Stop` hook in Claude Code, so once a session's context passes 200K
+tokens per message it tells you *in the session*, while the advice is still
+worth acting on:
+
+> ccost: this session now reads 617K tokens per message, 13x more than when it
+> started, about 7x. Context never shrinks inside a session, so finishing this
+> piece of work and starting a new one is the cheapest thing available.
+
+It merges into your existing `~/.claude/settings.json` rather than replacing it,
+keeps a backup, throttles itself so it nudges a handful of times rather than
+every turn, and never fails a session: every error path exits quietly. Undo with
+`ccost install-hook --remove`, which restores the file byte for byte.
 
 ### Which assistants it reads
 

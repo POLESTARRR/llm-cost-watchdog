@@ -5,6 +5,8 @@
     ccost week         the last seven days
     ccost projects     every project, ranked
     ccost report       a shareable HTML file, no server needed
+    ccost install-hook warn me automatically during a session
+    ccost hook         (internal: the Claude Code Stop-hook itself)
 
 Reads the session logs Claude Code already writes to ~/.claude/projects. Nothing
 to install into your workflow, no API key, no account, and it never sends
@@ -587,6 +589,174 @@ def build_report(sessions: list[dict]) -> str:
 """
 
 
+
+# Where the hook remembers what it has already said. Without this it would warn
+# on every single turn once the threshold is crossed, which is how a useful
+# warning becomes something people turn off.
+HOOK_STATE = pathlib.Path.home() / ".cache" / "ccost" / "hook-state.json"
+
+# Warn again only after context has grown by this much since the last warning.
+HOOK_REWARN_TOKENS = 150_000
+
+
+def session_context(transcript: pathlib.Path) -> tuple[int, int, int]:
+    """(context now, context at the start, turns) for one transcript file.
+
+    Reads the real token counts the assistant recorded rather than estimating
+    from file size. A transcript is mostly text that was never sent as input,
+    so bytes-divided-by-four is wrong by a wide and unpredictable margin, and a
+    warning that fires at the wrong time is worse than none.
+    """
+    first = last = 0
+    turns = 0
+    try:
+        with transcript.open(errors="ignore") as fh:
+            for line in fh:
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("type") != "assistant":
+                    continue
+                u = (rec.get("message") or {}).get("usage") or {}
+                if not u:
+                    continue
+                ctx = (u.get("input_tokens", 0)
+                       + u.get("cache_read_input_tokens", 0)
+                       + u.get("cache_creation_input_tokens", 0))
+                if ctx <= 0:
+                    continue
+                if not first:
+                    first = ctx
+                last = ctx
+                turns += 1
+    except OSError:
+        return 0, 0, 0
+    return last, first, turns
+
+
+def cmd_hook() -> int:
+    """Claude Code Stop-hook: warn mid-session when context has grown expensive.
+
+    Registered against the `Stop` event, which fires after each assistant turn
+    and hands over `transcript_path` on stdin. Printing a JSON object with
+    `systemMessage` surfaces the text to the user in the session itself, so the
+    advice arrives while it is still actionable rather than the next time
+    somebody remembers to run a CLI.
+
+    Always exits 0. A cost tool must never be the reason a session breaks, so
+    every failure path here is silent: a missing file, unreadable JSON, an
+    unexpected payload shape all end in "say nothing and get out of the way".
+    """
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return 0
+
+    path = payload.get("transcript_path")
+    if not path:
+        return 0
+    transcript = pathlib.Path(path)
+    if not transcript.exists():
+        return 0
+
+    ctx, start, turns = session_context(transcript)
+    if ctx < RESTART_SUGGEST_TOKENS or turns < 5:
+        return 0
+
+    # Throttle per session, so a long session gets a handful of nudges rather
+    # than one per turn.
+    session = payload.get("session_id") or transcript.stem
+    state = {}
+    try:
+        state = json.loads(HOOK_STATE.read_text())
+    except (OSError, ValueError):
+        pass
+    if ctx - state.get(session, 0) < HOOK_REWARN_TOKENS:
+        return 0
+
+    state[session] = ctx
+    try:
+        HOOK_STATE.parent.mkdir(parents=True, exist_ok=True)
+        # Keep the file small: only sessions still being warned about.
+        HOOK_STATE.write_text(json.dumps(dict(list(state.items())[-50:])))
+    except OSError:
+        pass
+
+    growth = f"{ctx / start:.0f}x" if start else "considerably"
+    here = calculate_cost("claude-sonnet-5", ctx, 1500, int(ctx * 0.95), 0)
+    fresh = calculate_cost("claude-sonnet-5", start or 1, 1500, int((start or 1) * 0.95), 0)
+    ratio = f", about {here / fresh:.0f}x" if fresh > 0 else ""
+
+    print(json.dumps({"systemMessage":
+        f"ccost: this session now reads {human(ctx)} tokens per message, {growth} more "
+        f"than when it started{ratio}. Context never shrinks inside a session, so "
+        f"finishing this piece of work and starting a new one is the cheapest thing "
+        f"available. Run `ccost` for detail."}))
+    return 0
+
+
+
+CLAUDE_SETTINGS = pathlib.Path.home() / ".claude" / "settings.json"
+
+
+def cmd_install_hook(remove: bool = False) -> int:
+    """Register (or remove) the Stop hook in ~/.claude/settings.json.
+
+    Editing that file by hand is a small task that people reasonably decline to
+    do, and a warning nobody installs is a warning that does not exist. This
+    merges into the existing settings rather than replacing them, because that
+    file also holds the user's model and effort preferences and losing those to
+    a convenience command would be a poor trade.
+    """
+    import shutil
+
+    settings = {}
+    if CLAUDE_SETTINGS.exists():
+        try:
+            settings = json.loads(CLAUDE_SETTINGS.read_text())
+        except ValueError:
+            print(f"{CLAUDE_SETTINGS} is not valid JSON. Not touching it.")
+            return 1
+
+    command = f"{sys.executable} {pathlib.Path(__file__).resolve()} hook"
+    entry = {
+        "matcher": "*",
+        "hooks": [{"type": "command", "command": command, "timeout": 10}],
+    }
+
+    hooks = settings.setdefault("hooks", {})
+    stop = hooks.setdefault("Stop", [])
+    # Identify our own entry by the "ccost" in its command, so re-running
+    # updates in place instead of stacking duplicates.
+    stop[:] = [g for g in stop if "ccost" not in json.dumps(g)]
+
+    if remove:
+        if not stop:
+            hooks.pop("Stop", None)
+        if not hooks:
+            settings.pop("hooks", None)
+    else:
+        stop.append(entry)
+
+    if CLAUDE_SETTINGS.exists():
+        shutil.copy2(CLAUDE_SETTINGS, CLAUDE_SETTINGS.with_suffix(".json.ccost-backup"))
+    CLAUDE_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    CLAUDE_SETTINGS.write_text(json.dumps(settings, indent=2) + "\n")
+
+    if remove:
+        print(f"removed the ccost hook from {CLAUDE_SETTINGS}")
+    else:
+        print(f"installed into {CLAUDE_SETTINGS}")
+        print(f"  backup: {CLAUDE_SETTINGS.with_suffix('.json.ccost-backup').name}")
+        print(f"\n  From now on, when a session's context passes "
+              f"{human(RESTART_SUGGEST_TOKENS)} tokens per message,")
+        print("  it will tell you, in the session, without being asked.")
+        print("  Start a new Claude Code session for it to take effect.")
+        print("\n  Undo any time with: ccost install-hook --remove")
+    return 0
+
+
 def main() -> int:
     if not TRANSCRIPTS.exists():
         print(f"No Claude Code data at {TRANSCRIPTS}")
@@ -613,6 +783,10 @@ def main() -> int:
               "than this tool's price table.")
         return 1
 
+    if cmd in ("install-hook", "uninstall-hook"):
+        return cmd_install_hook(remove=(cmd == "uninstall-hook" or "--remove" in sys.argv))
+    if cmd == "hook":
+        return cmd_hook()
     if cmd == "report":
         out = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "ai-cost-report.html")
         out.write_text(build_report(sessions))

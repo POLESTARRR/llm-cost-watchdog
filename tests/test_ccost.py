@@ -388,3 +388,163 @@ def test_cli_declares_no_runtime_dependencies():
     assert "ccost" in cfg["project"]["scripts"]
     # The heavy pieces stay opt-in.
     assert "dashboard" in cfg["project"]["optional-dependencies"]
+
+
+# --- the Claude Code hook -------------------------------------------------
+
+
+def _transcript(tmp_path, ctxs):
+    f = tmp_path / "session.jsonl"
+    f.write_text("\n".join(json.dumps({
+        "type": "assistant",
+        "message": {"model": "claude-sonnet-5", "usage": {
+            "input_tokens": c, "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0, "output_tokens": 100}},
+    }) for c in ctxs) + "\n")
+    return f
+
+
+def _run_hook(monkeypatch, capsys, payload, state_file):
+    import io
+
+    monkeypatch.setattr(ccost, "HOOK_STATE", state_file)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    rc = ccost.cmd_hook()
+    return rc, capsys.readouterr().out
+
+
+def test_hook_warns_once_context_is_large(tmp_path, monkeypatch, capsys):
+    f = _transcript(tmp_path, [40_000] + [500_000] * 8)
+    rc, out = _run_hook(monkeypatch, capsys,
+                        {"transcript_path": str(f), "session_id": "s1"},
+                        tmp_path / "state.json")
+    assert rc == 0
+    msg = json.loads(out)["systemMessage"]
+    assert "500K" in msg
+    assert "starting a new one" in msg
+
+
+def test_hook_is_silent_on_a_small_session(tmp_path, monkeypatch, capsys):
+    f = _transcript(tmp_path, [5_000] * 8)
+    rc, out = _run_hook(monkeypatch, capsys,
+                        {"transcript_path": str(f), "session_id": "s2"},
+                        tmp_path / "state.json")
+    assert rc == 0 and out == ""
+
+
+def test_hook_does_not_repeat_itself_every_turn(tmp_path, monkeypatch, capsys):
+    """A warning that fires on every turn is one people disable."""
+    f = _transcript(tmp_path, [40_000] + [500_000] * 8)
+    state = tmp_path / "state.json"
+    payload = {"transcript_path": str(f), "session_id": "s3"}
+
+    _, first = _run_hook(monkeypatch, capsys, payload, state)
+    _, second = _run_hook(monkeypatch, capsys, payload, state)
+    assert first and not second, "hook repeated itself without context growing"
+
+
+def test_hook_warns_again_after_substantial_growth(tmp_path, monkeypatch, capsys):
+    state = tmp_path / "state.json"
+    f1 = _transcript(tmp_path, [40_000] + [250_000] * 6)
+    _, first = _run_hook(monkeypatch, capsys,
+                         {"transcript_path": str(f1), "session_id": "s4"}, state)
+    assert first
+
+    grown = tmp_path / "grown.jsonl"
+    grown.write_text(_transcript(tmp_path, [40_000] + [600_000] * 6).read_text())
+    _, second = _run_hook(monkeypatch, capsys,
+                          {"transcript_path": str(grown), "session_id": "s4"}, state)
+    assert second, "context grew a long way and the hook stayed quiet"
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"transcript_path": "/nope/missing.jsonl"}, {"transcript_path": ""},
+    {"session_id": "only"}, {"transcript_path": None},
+])
+def test_hook_never_fails_a_session(tmp_path, monkeypatch, capsys, payload):
+    """A cost tool must not be the reason somebody's session breaks."""
+    rc, out = _run_hook(monkeypatch, capsys, payload, tmp_path / "state.json")
+    assert rc == 0
+    assert out == ""
+
+
+def test_hook_survives_a_corrupt_transcript(tmp_path, monkeypatch, capsys):
+    f = tmp_path / "bad.jsonl"
+    f.write_text('{"type":"assistant"\nnot json at all\n{"type":')
+    rc, out = _run_hook(monkeypatch, capsys,
+                        {"transcript_path": str(f), "session_id": "s5"},
+                        tmp_path / "state.json")
+    assert rc == 0 and out == ""
+
+
+def test_hook_reads_real_token_counts_not_file_size(tmp_path):
+    """A byte-count estimate misfires: a transcript is mostly text never sent."""
+    f = _transcript(tmp_path, [111_111, 222_222])
+    ctx, start, turns = ccost.session_context(f)
+    assert (ctx, start, turns) == (222_222, 111_111, 2)
+
+
+# --- installing it --------------------------------------------------------
+
+
+def test_install_hook_preserves_existing_settings(tmp_path, monkeypatch, capsys):
+    """That file holds the user's model and effort choices. Losing them is not
+    an acceptable price for a convenience command."""
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"model": "opus", "effortLevel": "high"}))
+    monkeypatch.setattr(ccost, "CLAUDE_SETTINGS", settings)
+
+    assert ccost.cmd_install_hook() == 0
+    after = json.loads(settings.read_text())
+    assert after["model"] == "opus"
+    assert after["effortLevel"] == "high"
+    assert "ccost" in json.dumps(after["hooks"]["Stop"])
+
+
+def test_install_is_idempotent(tmp_path, monkeypatch, capsys):
+    settings = tmp_path / "settings.json"
+    settings.write_text("{}")
+    monkeypatch.setattr(ccost, "CLAUDE_SETTINGS", settings)
+
+    ccost.cmd_install_hook()
+    ccost.cmd_install_hook()
+    stop = json.loads(settings.read_text())["hooks"]["Stop"]
+    assert len(stop) == 1, "re-running stacked a duplicate hook"
+
+
+def test_uninstall_restores_the_original_file(tmp_path, monkeypatch, capsys):
+    settings = tmp_path / "settings.json"
+    original = {"model": "opus", "effortLevel": "high"}
+    settings.write_text(json.dumps(original))
+    monkeypatch.setattr(ccost, "CLAUDE_SETTINGS", settings)
+
+    ccost.cmd_install_hook()
+    ccost.cmd_install_hook(remove=True)
+    assert json.loads(settings.read_text()) == original
+
+
+def test_install_leaves_other_hooks_alone(tmp_path, monkeypatch, capsys):
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"hooks": {"Stop": [
+        {"matcher": "*", "hooks": [{"type": "command", "command": "/usr/bin/somebody-elses-tool"}]}
+    ]}}))
+    monkeypatch.setattr(ccost, "CLAUDE_SETTINGS", settings)
+
+    ccost.cmd_install_hook()
+    stop = json.loads(settings.read_text())["hooks"]["Stop"]
+    assert len(stop) == 2
+    assert any("somebody-elses-tool" in json.dumps(g) for g in stop)
+
+    ccost.cmd_install_hook(remove=True)
+    stop = json.loads(settings.read_text())["hooks"]["Stop"]
+    assert len(stop) == 1
+    assert "somebody-elses-tool" in json.dumps(stop)
+
+
+def test_install_refuses_to_touch_malformed_settings(tmp_path, monkeypatch, capsys):
+    settings = tmp_path / "settings.json"
+    settings.write_text("{ this is not json")
+    monkeypatch.setattr(ccost, "CLAUDE_SETTINGS", settings)
+
+    assert ccost.cmd_install_hook() == 1
+    assert settings.read_text() == "{ this is not json", "clobbered a file it could not parse"
