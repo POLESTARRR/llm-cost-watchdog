@@ -6,12 +6,12 @@
 ## What exists
 
 - **Deployed gateway:** https://llmcostwatchdog.onrender.com
-- **Dashboard:** live at the same URL, showing historical + live data
-- **Database:** 4,190 events (4,186 historical, 4 live gateway calls)
+- **Dashboard:** live at the same URL, shows gateway traffic only (4 test calls so far)
+- **Database:** 4 events (all from gateway's proof test script)
 - **Routing:** complexity-based (trivial/moderate/complex) with auto-ladder synthesis
 - **Guardrails:** weekly budget enforcement, call-level tracking
-- **Quality measurement:** shadow comparison (cheap vs. real model on same prompt)
-- **Cost analysis:** levers ranked by size (caching 84%, model switch 77%, output 11%)
+- **Quality measurement:** shadow comparison (cheap vs. real model on same prompt) — ready but untested
+- **Cost analysis:** levers ranked by size — ready but untested on real data
 
 ## Tests & deployment
 
