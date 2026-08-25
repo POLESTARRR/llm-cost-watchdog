@@ -365,10 +365,15 @@
 <div class="wrap">
   <header>
     <h1>What does it cost to build software with an AI agent?</h1>
-    <div class="sub">Nobody had published a straight answer, so I measured my own:
-      <b>4,399 requests across thirteen projects, every one priced.</b> The answer
-      was not what I expected, and the second half of this page is the tool I built
-      because of it.</div>
+    <!-- The counts are filled in from /findings, never typed. Hardcoding them is
+         how this line came to read "4,399 requests across thirteen projects"
+         while the figures directly beneath it said 23 projects and 8,765 turns:
+         the page contradicted itself in two paragraphs, which is precisely the
+         drift the rest of it is built to make impossible. -->
+    <div class="sub" id="header-sub">Nobody had published a straight answer, so I
+      measured my own: every request I sent to an AI coding assistant while building
+      my projects, each one priced. The answer was not what I expected, and the second
+      half of this page is the tool I built because of it.</div>
   </header>
 
   <section class="tool" id="tool" hidden>
@@ -972,6 +977,16 @@ function renderFindings(f) {
   // conflation Source.subscription exists to prevent, so both are always shown
   // and the smaller one is labelled as the real money.
   const paid = f.actually_paid || {};
+  const words = ["one","two","three","four","five","six","seven","eight","nine","ten",
+                 "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen",
+                 "eighteen","nineteen","twenty"];
+  const spell = (n) => (n >= 1 && n <= 20) ? words[n - 1] : String(n);
+  $("header-sub").innerHTML =
+    `Nobody had published a straight answer, so I measured my own: ` +
+    `<b>${h.turns.toLocaleString()} requests across ${esc(spell(h.projects))} projects, ` +
+    `every one priced.</b> The answer was not what I expected, and the second half of ` +
+    `this page is the tool I built because of it.`;
+
   $("study-nums").innerHTML = [
     [money(h.cost_usd), "of work, priced at metered API rates"],
     [paid.subscription_cost_usd != null ? money(paid.subscription_cost_usd) : "—",
@@ -984,7 +999,7 @@ function renderFindings(f) {
   $("study-src").innerHTML =
     `<b>Nobody spent ${money(h.cost_usd)}.</b> This ran on a flat monthly plan costing ` +
     `${paid.subscription_cost_usd != null ? money(paid.subscription_cost_usd) : "a fixed fee"} ` +
-    `over these ${esc(day(h.first_day))}&ndash;${esc(day(h.last_day))} days. The bigger number is ` +
+    `over the ${esc(day(h.first_day))} to ${esc(day(h.last_day))} period. The bigger number is ` +
     `what the same tokens would have cost on a pay-per-use plan, which is the only way to compare ` +
     `one request against another.<br><br>` +
     `Read from my own session logs. Most of those ${compact(h.input_tokens)} input tokens are the ` +

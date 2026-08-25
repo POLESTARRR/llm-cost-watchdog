@@ -590,3 +590,23 @@ def test_sessions_endpoint_reports_growth_when_transcripts_exist(client, monkeyp
     assert body["current"]["project"] == "demo"
     assert body["current"]["should_restart"] is True
     assert body["current"]["growth"] > 100      # 1,000 -> 502,000 tokens
+
+
+def test_the_page_hardcodes_no_counts_that_can_drift(client):
+    """The header once read "4,399 requests across thirteen projects" while the
+    figures two paragraphs below said 23 projects and 8,765 turns.
+
+    Everything else on the page is computed from /findings per request, so it
+    cannot drift. That one sentence was typed, so it did, and the page
+    contradicted itself in the first thing anyone reads. This asserts the stale
+    literals never come back into the served markup.
+    """
+    html = client.get("/").text
+    for stale in ("4,399 requests", "thirteen projects", "13 projects",
+                  "8,765 requests", "23 projects"):
+        assert stale not in html, (
+            f"{stale!r} is hardcoded in index.html; it will be wrong the next "
+            "time the ledger changes"
+        )
+    # And the element it fills must exist for the fill to land anywhere.
+    assert 'id="header-sub"' in html
