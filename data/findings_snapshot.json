@@ -1,50 +1,50 @@
 {
  "headline": {
-  "cost_usd": 1521.56,
-  "turns": 8765,
+  "cost_usd": 1620.09,
+  "turns": 8995,
   "projects": 23,
-  "input_tokens": 2426168949,
-  "output_tokens": 7721508,
-  "cost_per_project_usd": 66.15,
+  "input_tokens": 2558511522,
+  "output_tokens": 7942955,
+  "cost_per_project_usd": 70.44,
   "first_day": "2026-08-05",
-  "last_day": "2026-08-24"
+  "last_day": "2026-08-25"
  },
  "read_vs_write": {
-  "ratio": 314,
-  "read_cost_usd": 1213.32,
-  "write_cost_usd": 162.07,
-  "cache_ttl_premium_usd": 146.17,
-  "read_percent": 79.7,
-  "write_percent": 10.7,
-  "cache_ttl_premium_percent": 9.6,
+  "ratio": 322,
+  "read_cost_usd": 1295.77,
+  "write_cost_usd": 167.02,
+  "cache_ttl_premium_usd": 157.31,
+  "read_percent": 80.0,
+  "write_percent": 10.3,
+  "cache_ttl_premium_percent": 9.7,
   "priciest_turn": {
-   "cost_usd": 6.85,
-   "input_tokens": 696926,
-   "output_tokens": 1240,
+   "cost_usd": 7.47,
+   "input_tokens": 763133,
+   "output_tokens": 705,
    "model": "claude-opus-5",
    "project": "p2-jsw"
   }
  },
  "caching": {
-  "saved_usd": 8531.07,
-  "uncached_cost_usd": 10052.62,
+  "saved_usd": 9091.21,
+  "uncached_cost_usd": 10711.31,
   "percent_saved": 84.9,
   "multiple": 6.6,
   "hit_rate_percent": 98.0
  },
  "turn_shape": {
-  "median_usd": 0.1238,
-  "p99_usd": 1.0382
+  "median_usd": 0.1258,
+  "p99_usd": 1.0472
  },
  "by_project": [
   {
    "project": "p2-jsw",
-   "turns": 1705,
-   "cost_usd": 293.56,
-   "cost_per_turn_usd": 0.1722,
-   "input_tokens": 498659693,
-   "output_tokens": 1278209,
-   "read_write_ratio": 390
+   "turns": 1896,
+   "cost_usd": 389.28,
+   "cost_per_turn_usd": 0.2053,
+   "input_tokens": 627016466,
+   "output_tokens": 1440309,
+   "read_write_ratio": 435
   },
   {
    "project": "mum-rag-assistant",
@@ -93,12 +93,12 @@
   },
   {
    "project": "home",
-   "turns": 1159,
-   "cost_usd": 92.9,
-   "cost_per_turn_usd": 0.0802,
-   "input_tokens": 178594614,
-   "output_tokens": 827607,
-   "read_write_ratio": 216
+   "turns": 1198,
+   "cost_usd": 95.72,
+   "cost_per_turn_usd": 0.0799,
+   "input_tokens": 182580414,
+   "output_tokens": 886954,
+   "read_write_ratio": 206
   },
   {
    "project": "ibs",
@@ -248,13 +248,13 @@
  "by_model": [
   {
    "model": "claude-opus-5",
-   "turns": 4530,
-   "cost_usd": 1030.32
+   "turns": 4721,
+   "cost_usd": 1126.04
   },
   {
    "model": "claude-sonnet-5",
-   "turns": 4035,
-   "cost_usd": 487.11
+   "turns": 4074,
+   "cost_usd": 489.92
   },
   {
    "model": "claude-haiku-4-5",
@@ -265,28 +265,28 @@
  "counterfactuals": [
   {
    "model": "claude-sonnet-5",
-   "cost_usd": 1117.69,
-   "actual_usd": 1521.56,
-   "delta_percent": -26.5,
+   "cost_usd": 1177.94,
+   "actual_usd": 1620.09,
+   "delta_percent": -27.3,
    "caveat": "Prices a substitution on real token counts. It does not judge whether the substitute's answers would have been good enough."
   },
   {
    "model": "claude-haiku-4-5",
-   "cost_usd": 372.56,
-   "actual_usd": 1521.56,
-   "delta_percent": -75.5,
+   "cost_usd": 392.65,
+   "actual_usd": 1620.09,
+   "delta_percent": -75.8,
    "caveat": "Prices a substitution on real token counts. It does not judge whether the substitute's answers would have been good enough."
   }
  ],
  "actually_paid": {
   "period": "all_time",
-  "calls": 8765,
-  "list_price_value_usd": 1521.555179,
-  "subscription_cost_usd": 12.923453,
+  "calls": 8995,
+  "list_price_value_usd": 1620.09393,
+  "subscription_cost_usd": 13.489753,
   "subscription_usd_per_month": 20.0,
-  "span_days": 19.39,
-  "roi_multiple": 117.7,
+  "span_days": 20.23,
+  "roi_multiple": 120.1,
   "note": "list_price_value_usd is what these tokens would have cost through the metered API. No per-token charge occurred, this is value delivered, not money spent."
  },
- "generated_at": "2026-08-25T07:42:34+00:00"
+ "generated_at": "2026-08-25T13:28:19+00:00"
 }

@@ -67,8 +67,21 @@ if [ ! -x "$ROOT/venv/bin/python" ]; then
   exit 1
 fi
 
-"$ROOT/venv/bin/python" "$ROOT/scripts/import_all_projects.py" --remote-url "$SITE"
+# 1. Read every transcript into the local ledger. Discovery is automatic, so a
+#    project started today is picked up without anything being configured.
+"$ROOT/venv/bin/python" "$ROOT/scripts/import_all_projects.py"
 status=$?
+
+# 2. Publish it. This writes to the deployed database directly rather than
+#    posting to the site's /import endpoint, which needs WATCHDOG_IMPORT_KEY to
+#    match on both ends and does not here, so that route returns 401 and the
+#    published site silently stops tracking new work. Going straight to the
+#    database is the same operation with one fewer secret to keep aligned, and
+#    it does not need the web service to be awake, which on a free tier it
+#    usually is not.
+if [ $status -eq 0 ]; then
+  "$ROOT/venv/bin/python" "$ROOT/scripts/sync_to_turso.py" || status=$?
+fi
 
 # Refresh the shipped example of the tool while the transcripts are here to read.
 # It is the only thing on the deployed page that shows ccost doing anything, and
@@ -94,8 +107,8 @@ SNAP
 if [ $status -ne 0 ]; then
   # A failed sync must not look like a successful one. The most common cause by
   # far is WATCHDOG_IMPORT_KEY here not matching the value set on the host.
-  echo "sync FAILED (exit $status). If this is a 401, the local WATCHDOG_IMPORT_KEY"
-  echo "does not match the one in the deployment's environment."
+  echo "sync FAILED (exit $status). Check TURSO_DATABASE_URL and TURSO_AUTH_TOKEN"
+  echo "in .env.render, and that the local ledger is not empty."
   exit $status
 fi
 
