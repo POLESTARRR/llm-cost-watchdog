@@ -83,6 +83,8 @@ def arg(v):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="publish even if it would shrink the remote substantially")
     args = ap.parse_args()
 
     url, token = credentials()
@@ -114,6 +116,22 @@ def main() -> int:
     if remote_n == len(events):
         print("already in sync")
         return 0
+
+    # Refuse a collapse. The empty-ledger check above is not enough: a second
+    # clone of this repo, with its own fresh database, imported 33 rows and
+    # published them over 9,033, because the importer's checkpoints live beside
+    # the transcripts and are shared between copies while the databases are not.
+    # The clone was told everything had already been imported, imported almost
+    # nothing, and passed a guard that only asked whether it had *something*.
+    #
+    # Any large shrink is far more likely to be a misconfigured copy than a
+    # genuine deletion, so it stops and makes a human look.
+    if remote_n and len(events) < remote_n * 0.9 and not args.force:
+        print(f"\nREFUSING: local has {len(events):,} rows against the remote's {remote_n:,}.")
+        print("A drop this large usually means this copy's database is incomplete,")
+        print("not that the work was deleted. Nothing was changed.")
+        print("\nIf the shrink is real and intended, pass --force.")
+        return 1
     if args.dry_run:
         print(f"would replace {remote_n:,} remote rows with {len(events):,} local ones")
         return 0
