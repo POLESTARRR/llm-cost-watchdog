@@ -752,3 +752,64 @@ def test_copilot_timestamp_parser_is_defensive():
     assert ccost._copilot_ts(None, 42.0) == 42.0
     assert ccost._copilot_ts("not a date", 42.0) == 42.0
     assert ccost._copilot_ts("2026-08-04T08:00:00.000Z", 42.0) > 42.0
+
+
+# --- Copilot's actual billing unit ----------------------------------------
+
+
+def test_copilot_sessions_carry_premium_request_counts(tmp_path, monkeypatch):
+    """GitHub bills Copilot per prompt, not per token.
+
+    That is why its store holds no token accounting: nobody is charged on
+    tokens for it. Pricing it in tokens would answer a question no invoice
+    asks. One submitted prompt is one premium request, and the turns table
+    holds one row per exchange, so this unit is exactly countable.
+    """
+    import sqlite3
+
+    db = tmp_path / "s.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT);
+        CREATE TABLE turns (id INTEGER PRIMARY KEY, session_id TEXT,
+                            user_message TEXT, timestamp TEXT);
+        INSERT INTO sessions VALUES ('a', '/x/proj');
+        INSERT INTO turns (session_id, user_message, timestamp) VALUES
+            ('a', 'one', '2026-08-04T08:00:00Z'),
+            ('a', 'two', '2026-08-04T08:01:00Z'),
+            ('a', 'three', '2026-08-04T08:02:00Z');
+    """)
+    conn.commit(); conn.close()
+    monkeypatch.setattr(ccost, "COPILOT_DB", db)
+
+    s = ccost.read_copilot_sessions()[0]
+    assert s["premium_requests"] == 3
+    assert s["priced"] is False, "premium requests are not dollars"
+    assert s["cost"] == 0.0
+
+
+def test_week_reports_copilot_against_its_quota(tmp_path, monkeypatch, capsys):
+    import time
+
+    monkeypatch.setattr(ccost, "PREMIUM_REQUESTS_PER_MONTH", 300)
+    ccost.cmd_week([{
+        "tool": "copilot", "project": "p", "turns": [], "cost": 0.0,
+        "priced": False, "message_count": 30, "premium_requests": 30,
+        "mtime": time.time(),
+    }])
+    out = capsys.readouterr().out
+    assert "30 premium request" in out
+    assert "300/month" in out
+    assert "10%" in out
+    # It must not present a quota fraction as money.
+    assert "$1.20" not in out
+
+
+def test_quota_is_configurable_for_other_plans(monkeypatch):
+    """Pro is 300; Pro+ is 1,500. A hardcoded number would be wrong for half of users."""
+    monkeypatch.setenv("COPILOT_PREMIUM_QUOTA", "1500")
+    import importlib
+
+    reloaded = importlib.reload(ccost)
+    assert reloaded.PREMIUM_REQUESTS_PER_MONTH == 1500
+    importlib.reload(reloaded)

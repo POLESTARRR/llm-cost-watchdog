@@ -245,6 +245,9 @@ def read_copilot_sessions() -> list[dict]:
             "project": pathlib.Path(cwd).name if cwd else "copilot",
             "file": str(sid), "turns": [], "cost": 0.0, "priced": False,
             "message_count": n_turns,
+            # One submitted prompt is one premium request, which is the unit
+            # this is actually billed in.
+            "premium_requests": n_turns,
             # When each session actually happened, not when the file was last
             # touched. Every session shares one database, so the file's mtime
             # stamps them all identically and with the wrong date: here it read
@@ -396,10 +399,15 @@ def cmd_week(sessions: list[dict]) -> None:
         print(f"    {proj[:26]:26} {money(c):>9}  {DIM}{bar}{RESET}")
 
     if unpriced:
-        msgs = sum(s.get("message_count", 0) for s in unpriced)
-        print(f"\n  {DIM}Also {len(unpriced)} Copilot session(s), {msgs} messages. "
-              f"Copilot publishes no token counts locally, so these are counted "
-              f"but not priced.{RESET}")
+        reqs = sum(s.get("premium_requests", s.get("message_count", 0)) for s in unpriced)
+        pct = 100 * reqs / PREMIUM_REQUESTS_PER_MONTH if PREMIUM_REQUESTS_PER_MONTH else 0
+        colour = RED if pct >= 90 else YELLOW if pct >= 70 else GREEN
+        print(f"\n  {BOLD}Copilot{RESET}  {len(unpriced)} session(s), "
+              f"{colour}{reqs} premium request(s){RESET} of a "
+              f"{PREMIUM_REQUESTS_PER_MONTH}/month allowance ({pct:.0f}%)")
+        print(f"  {DIM}GitHub bills Copilot per prompt, not per token, so this is counted in "
+              f"the unit you are actually charged in. Beyond the allowance the documented "
+              f"rate is ${PREMIUM_REQUEST_OVERAGE_USD:.2f} each.{RESET}")
 
     note = _blind_spot_note()
     if note:
@@ -771,6 +779,20 @@ def build_report(sessions: list[dict]) -> str:
 </div></body></html>
 """
 
+
+
+# GitHub bills Copilot in "premium requests", not tokens: one per prompt you
+# submit, with autonomous follow-up actions not counted. That is why its local
+# store has no token accounting for anyone to read, and why pricing it in tokens
+# would be answering a question nobody is billed on.
+#
+# Counting the unit GitHub actually charges in is both possible and exact, since
+# the turns table holds one row per exchange. Copilot Pro (which GitHub gives
+# verified students free) allows 300 a month; beyond that the documented rate is
+# $0.04 each, and Copilot keeps working on the included models with rate limits
+# rather than stopping.
+PREMIUM_REQUESTS_PER_MONTH = int(os.environ.get("COPILOT_PREMIUM_QUOTA", "300"))
+PREMIUM_REQUEST_OVERAGE_USD = 0.04
 
 
 # Where the hook remembers what it has already said. Without this it would warn
