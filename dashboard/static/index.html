@@ -365,11 +365,12 @@
 <div class="wrap">
   <header>
     <h1>What does it cost to build software with an AI agent?</h1>
-    <!-- The counts are filled in from /findings, never typed. Hardcoding them is
-         how this line came to read "4,399 requests across thirteen projects"
-         while the figures directly beneath it said 23 projects and 8,765 turns:
-         the page contradicted itself in two paragraphs, which is precisely the
-         drift the rest of it is built to make impossible. -->
+    <!-- The counts are filled in from /findings, never typed. A hardcoded pair
+         here once named a request total and a project count that the ledger had
+         long since outgrown, while the figures directly beneath were computed
+         and correct, so the page contradicted itself in its first two
+         paragraphs. That is exactly the drift the rest of it exists to prevent,
+         and a test asserts no such literal returns to this file. -->
     <div class="sub" id="header-sub">Nobody had published a straight answer, so I
       measured my own: every request I sent to an AI coding assistant while building
       my projects, each one priced. The answer was not what I expected, and the second
@@ -533,7 +534,7 @@ client.chat.completions.create(model=<b id="gw-group">"group:ladder"</b>, messag
     <label for="source">Data</label>
     <select id="source">
       <option value="all" selected>Everything</option>
-      <option value="subscription,manual">Measured build work (the 13 projects)</option>
+      <option value="subscription,manual">Measured build work (all projects)</option>
       <option value="live">Live calls the gateway served</option>
     </select>
   </div>
