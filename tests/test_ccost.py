@@ -628,3 +628,47 @@ def test_truncation_is_announced_when_it_happens(capsys):
     ccost.cmd_projects(many)
     out = capsys.readouterr().out
     assert "and 10 smaller" in out, "cut the list without saying so"
+
+
+# --- knowing what it cannot see -------------------------------------------
+
+
+def test_reports_assistants_it_cannot_read(tmp_path, monkeypatch):
+    """Silently under-reporting is the worst thing a cost tool can do.
+
+    ccost adapts to new projects on its own because it globs the disk. It does
+    not adapt to a new *assistant*: each writes a different format, and reading
+    one nobody has looked at is how you get confidently invented numbers. So
+    when an unsupported assistant is present, the total is declared incomplete
+    and the missing source is named.
+    """
+    (tmp_path / "Cursor").mkdir()
+    (tmp_path / "aider.md").touch()
+    monkeypatch.setattr(ccost, "OTHER_ASSISTANTS", {
+        "Cursor": tmp_path / "Cursor",
+        "Aider": tmp_path / "aider.md",
+        "Zed": tmp_path / "not-installed",
+    })
+
+    found = ccost.unread_assistants()
+    assert found == ["Aider", "Cursor"]
+    assert "Zed" not in found
+
+    note = ccost._blind_spot_note()
+    assert "Aider" in note and "Cursor" in note
+    assert "missing from these totals" in note
+
+
+def test_says_nothing_when_there_is_no_blind_spot(tmp_path, monkeypatch):
+    monkeypatch.setattr(ccost, "OTHER_ASSISTANTS", {"Cursor": tmp_path / "absent"})
+    assert ccost.unread_assistants() == []
+    assert ccost._blind_spot_note() == ""
+
+
+def test_the_warning_reaches_the_totals_commands(tmp_path, monkeypatch, capsys):
+    """It has to appear where a number is being quoted, not in a help page."""
+    (tmp_path / "Cursor").mkdir()
+    monkeypatch.setattr(ccost, "OTHER_ASSISTANTS", {"Cursor": tmp_path / "Cursor"})
+    ccost.cmd_projects([{"tool": "claude-code", "project": "p", "turns": [1000],
+                         "cost": 1.0, "priced": True, "mtime": 1}])
+    assert "Cursor" in capsys.readouterr().out

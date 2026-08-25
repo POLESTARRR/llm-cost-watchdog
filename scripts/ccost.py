@@ -375,6 +375,10 @@ def cmd_week(sessions: list[dict]) -> None:
               f"Copilot publishes no token counts locally, so these are counted "
               f"but not priced.{RESET}")
 
+    note = _blind_spot_note()
+    if note:
+        print(note)
+
     heavy = [s for s in priced if s["turns"] and s["turns"][-1] >= RESTART_SUGGEST_TOKENS]
     if heavy:
         print(f"\n  {YELLOW}{len(heavy)} of these sessions grew past "
@@ -413,6 +417,9 @@ def cmd_projects(sessions: list[dict]) -> None:
               f"({money(sum(b['cost'] for _, b in hidden))} between them){RESET}")
     total = sum(b["cost"] for b in by.values())
     print(f"  {'':28}{money(total):>10}  {DIM}total{RESET}")
+    note = _blind_spot_note()
+    if note:
+        print(note)
 
 
 def snapshot(sessions: list[dict]) -> dict:
@@ -494,6 +501,44 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}tr:last-child td{border-
 .scroll{overflow-x:auto}
 """
 
+
+
+
+# Assistants this tool cannot read yet, and where they leave evidence of
+# themselves. The point is not to support them; it is to refuse to be silently
+# wrong about them.
+#
+# ccost adapts to new *projects* on its own, because it globs the disk rather
+# than consulting a list. It does not adapt to a new *assistant*: every one of
+# these writes a different format, and reading a format nobody has looked at is
+# how you get confidently invented numbers. So the honest behaviour when one
+# turns up is to say the total is incomplete and name what is missing from it.
+OTHER_ASSISTANTS = {
+    "Cursor": pathlib.Path.home() / "Library" / "Application Support" / "Cursor",
+    "Windsurf": pathlib.Path.home() / "Library" / "Application Support" / "Windsurf",
+    "Zed": pathlib.Path.home() / ".config" / "zed",
+    "Aider": pathlib.Path.home() / ".aider.chat.history.md",
+    "Continue": pathlib.Path.home() / ".continue",
+    "Gemini CLI": pathlib.Path.home() / ".gemini",
+    "Goose": pathlib.Path.home() / ".config" / "goose",
+    "OpenCode": pathlib.Path.home() / ".opencode",
+    "Amp": pathlib.Path.home() / ".amp",
+}
+
+
+def unread_assistants() -> list[str]:
+    """Assistants present on this machine that ccost cannot price."""
+    return sorted(name for name, path in OTHER_ASSISTANTS.items() if path.exists())
+
+
+def _blind_spot_note() -> str:
+    found = unread_assistants()
+    if not found:
+        return ""
+    names = ", ".join(found)
+    return (f"\n  {DIM}Also installed here: {names}. ccost cannot read "
+            f"{'their' if len(found) > 1 else 'its'} logs, so anything done "
+            f"{'there' if len(found) > 1 else 'there'} is missing from these totals.{RESET}")
 
 
 def context_growth_curve(sessions: list[dict], min_turns: int = 20) -> list[int]:
