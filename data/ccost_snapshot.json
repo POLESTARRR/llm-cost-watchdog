@@ -1,28 +1,28 @@
 {
-  "generated_at": "2026-08-25T13:28:19+00:00",
+  "generated_at": "2026-08-25T16:12:20+00:00",
   "current": {
     "project": "P2-JSW",
-    "turns": 1738,
-    "cost_usd": 407.27,
-    "context_now": 767309,
+    "turns": 1809,
+    "cost_usd": 454.31,
+    "context_now": 800254,
     "context_start": 46902,
-    "growth": 16.4,
+    "growth": 17.1,
     "should_restart": true
   },
   "week": {
     "sessions": 40,
-    "turns": 7750,
-    "cost_usd": 1320.24,
-    "tokens_read": 2503630198,
+    "turns": 7821,
+    "cost_usd": 1367.29,
+    "tokens_read": 2559325942,
     "grown_past_threshold": 9,
     "by_project": [
       {
-        "project": "Mum-Rag-assistant",
-        "cost_usd": 440.91
+        "project": "P2-JSW",
+        "cost_usd": 454.31
       },
       {
-        "project": "P2-JSW",
-        "cost_usd": 407.27
+        "project": "Mum-Rag-assistant",
+        "cost_usd": 440.91
       },
       {
         "project": "FEYMAN",

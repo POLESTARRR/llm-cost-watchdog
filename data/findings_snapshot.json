@@ -1,50 +1,50 @@
 {
  "headline": {
-  "cost_usd": 1620.09,
-  "turns": 8995,
+  "cost_usd": 1650.41,
+  "turns": 9033,
   "projects": 23,
-  "input_tokens": 2558511522,
-  "output_tokens": 7942955,
-  "cost_per_project_usd": 70.44,
+  "input_tokens": 2588320323,
+  "output_tokens": 7969335,
+  "cost_per_project_usd": 71.76,
   "first_day": "2026-08-05",
   "last_day": "2026-08-25"
  },
  "read_vs_write": {
-  "ratio": 322,
-  "read_cost_usd": 1295.77,
-  "write_cost_usd": 167.02,
-  "cache_ttl_premium_usd": 157.31,
+  "ratio": 325,
+  "read_cost_usd": 1319.61,
+  "write_cost_usd": 167.68,
+  "cache_ttl_premium_usd": 163.13,
   "read_percent": 80.0,
-  "write_percent": 10.3,
-  "cache_ttl_premium_percent": 9.7,
+  "write_percent": 10.2,
+  "cache_ttl_premium_percent": 9.9,
   "priciest_turn": {
-   "cost_usd": 7.47,
-   "input_tokens": 763133,
-   "output_tokens": 705,
+   "cost_usd": 7.66,
+   "input_tokens": 780240,
+   "output_tokens": 1172,
    "model": "claude-opus-5",
    "project": "p2-jsw"
   }
  },
  "caching": {
-  "saved_usd": 9091.21,
-  "uncached_cost_usd": 10711.31,
-  "percent_saved": 84.9,
+  "saved_usd": 9210.6,
+  "uncached_cost_usd": 10861.01,
+  "percent_saved": 84.8,
   "multiple": 6.6,
   "hit_rate_percent": 98.0
  },
  "turn_shape": {
-  "median_usd": 0.1258,
-  "p99_usd": 1.0472
+  "median_usd": 0.1263,
+  "p99_usd": 1.0515
  },
  "by_project": [
   {
    "project": "p2-jsw",
-   "turns": 1896,
-   "cost_usd": 389.28,
-   "cost_per_turn_usd": 0.2053,
-   "input_tokens": 627016466,
-   "output_tokens": 1440309,
-   "read_write_ratio": 435
+   "turns": 1934,
+   "cost_usd": 419.6,
+   "cost_per_turn_usd": 0.217,
+   "input_tokens": 656825267,
+   "output_tokens": 1466689,
+   "read_write_ratio": 448
   },
   {
    "project": "mum-rag-assistant",
@@ -248,8 +248,8 @@
  "by_model": [
   {
    "model": "claude-opus-5",
-   "turns": 4721,
-   "cost_usd": 1126.04
+   "turns": 4759,
+   "cost_usd": 1156.36
   },
   {
    "model": "claude-sonnet-5",
@@ -265,28 +265,28 @@
  "counterfactuals": [
   {
    "model": "claude-sonnet-5",
-   "cost_usd": 1177.94,
-   "actual_usd": 1620.09,
-   "delta_percent": -27.3,
+   "cost_usd": 1196.14,
+   "actual_usd": 1650.41,
+   "delta_percent": -27.5,
    "caveat": "Prices a substitution on real token counts. It does not judge whether the substitute's answers would have been good enough."
   },
   {
    "model": "claude-haiku-4-5",
-   "cost_usd": 392.65,
-   "actual_usd": 1620.09,
+   "cost_usd": 398.71,
+   "actual_usd": 1650.41,
    "delta_percent": -75.8,
    "caveat": "Prices a substitution on real token counts. It does not judge whether the substitute's answers would have been good enough."
   }
  ],
  "actually_paid": {
   "period": "all_time",
-  "calls": 8995,
-  "list_price_value_usd": 1620.09393,
-  "subscription_cost_usd": 13.489753,
+  "calls": 9033,
+  "list_price_value_usd": 1650.413439,
+  "subscription_cost_usd": 13.565762,
   "subscription_usd_per_month": 20.0,
-  "span_days": 20.23,
-  "roi_multiple": 120.1,
+  "span_days": 20.35,
+  "roi_multiple": 121.7,
   "note": "list_price_value_usd is what these tokens would have cost through the metered API. No per-token charge occurred, this is value delivered, not money spent."
  },
- "generated_at": "2026-08-25T13:28:19+00:00"
+ "generated_at": "2026-08-25T16:12:22+00:00"
 }
