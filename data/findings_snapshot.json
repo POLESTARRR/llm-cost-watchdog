@@ -1,0 +1,292 @@
+{
+ "headline": {
+  "cost_usd": 1521.56,
+  "turns": 8765,
+  "projects": 23,
+  "input_tokens": 2426168949,
+  "output_tokens": 7721508,
+  "cost_per_project_usd": 66.15,
+  "first_day": "2026-08-05",
+  "last_day": "2026-08-24"
+ },
+ "read_vs_write": {
+  "ratio": 314,
+  "read_cost_usd": 1213.32,
+  "write_cost_usd": 162.07,
+  "cache_ttl_premium_usd": 146.17,
+  "read_percent": 79.7,
+  "write_percent": 10.7,
+  "cache_ttl_premium_percent": 9.6,
+  "priciest_turn": {
+   "cost_usd": 6.85,
+   "input_tokens": 696926,
+   "output_tokens": 1240,
+   "model": "claude-opus-5",
+   "project": "p2-jsw"
+  }
+ },
+ "caching": {
+  "saved_usd": 8531.07,
+  "uncached_cost_usd": 10052.62,
+  "percent_saved": 84.9,
+  "multiple": 6.6,
+  "hit_rate_percent": 98.0
+ },
+ "turn_shape": {
+  "median_usd": 0.1238,
+  "p99_usd": 1.0382
+ },
+ "by_project": [
+  {
+   "project": "p2-jsw",
+   "turns": 1705,
+   "cost_usd": 293.56,
+   "cost_per_turn_usd": 0.1722,
+   "input_tokens": 498659693,
+   "output_tokens": 1278209,
+   "read_write_ratio": 390
+  },
+  {
+   "project": "mum-rag-assistant",
+   "turns": 1231,
+   "cost_usd": 210.13,
+   "cost_per_turn_usd": 0.1707,
+   "input_tokens": 489643862,
+   "output_tokens": 836766,
+   "read_write_ratio": 585
+  },
+  {
+   "project": "scalp-log",
+   "turns": 346,
+   "cost_usd": 117.01,
+   "cost_per_turn_usd": 0.3382,
+   "input_tokens": 131555131,
+   "output_tokens": 465684,
+   "read_write_ratio": 282
+  },
+  {
+   "project": "feyman",
+   "turns": 508,
+   "cost_usd": 110.64,
+   "cost_per_turn_usd": 0.2178,
+   "input_tokens": 160048783,
+   "output_tokens": 425556,
+   "read_write_ratio": 376
+  },
+  {
+   "project": "last-kilometre",
+   "turns": 488,
+   "cost_usd": 109.36,
+   "cost_per_turn_usd": 0.2241,
+   "input_tokens": 135563476,
+   "output_tokens": 460805,
+   "read_write_ratio": 294
+  },
+  {
+   "project": "llm-cost-watchdog",
+   "turns": 376,
+   "cost_usd": 95.86,
+   "cost_per_turn_usd": 0.255,
+   "input_tokens": 159304396,
+   "output_tokens": 306786,
+   "read_write_ratio": 519
+  },
+  {
+   "project": "home",
+   "turns": 1159,
+   "cost_usd": 92.9,
+   "cost_per_turn_usd": 0.0802,
+   "input_tokens": 178594614,
+   "output_tokens": 827607,
+   "read_write_ratio": 216
+  },
+  {
+   "project": "ibs",
+   "turns": 275,
+   "cost_usd": 81.18,
+   "cost_per_turn_usd": 0.2952,
+   "input_tokens": 96636755,
+   "output_tokens": 453826,
+   "read_write_ratio": 213
+  },
+  {
+   "project": "c2c",
+   "turns": 299,
+   "cost_usd": 80.3,
+   "cost_per_turn_usd": 0.2686,
+   "input_tokens": 96294482,
+   "output_tokens": 375579,
+   "read_write_ratio": 256
+  },
+  {
+   "project": "brainstorm",
+   "turns": 251,
+   "cost_usd": 70.28,
+   "cost_per_turn_usd": 0.28,
+   "input_tokens": 86288053,
+   "output_tokens": 473498,
+   "read_write_ratio": 182
+  },
+  {
+   "project": "gtm",
+   "turns": 402,
+   "cost_usd": 64.14,
+   "cost_per_turn_usd": 0.1596,
+   "input_tokens": 83782885,
+   "output_tokens": 407547,
+   "read_write_ratio": 206
+  },
+  {
+   "project": "umbra",
+   "turns": 275,
+   "cost_usd": 48.65,
+   "cost_per_turn_usd": 0.1769,
+   "input_tokens": 57429955,
+   "output_tokens": 205340,
+   "read_write_ratio": 280
+  },
+  {
+   "project": "civil-prep",
+   "turns": 417,
+   "cost_usd": 48.29,
+   "cost_per_turn_usd": 0.1158,
+   "input_tokens": 89302978,
+   "output_tokens": 279180,
+   "read_write_ratio": 320
+  },
+  {
+   "project": "prahar",
+   "turns": 193,
+   "cost_usd": 22.28,
+   "cost_per_turn_usd": 0.1154,
+   "input_tokens": 31443999,
+   "output_tokens": 155519,
+   "read_write_ratio": 202
+  },
+  {
+   "project": "saans",
+   "turns": 51,
+   "cost_usd": 21.38,
+   "cost_per_turn_usd": 0.4192,
+   "input_tokens": 33531189,
+   "output_tokens": 122637,
+   "read_write_ratio": 273
+  },
+  {
+   "project": "nh",
+   "turns": 116,
+   "cost_usd": 18.08,
+   "cost_per_turn_usd": 0.1559,
+   "input_tokens": 18602251,
+   "output_tokens": 161290,
+   "read_write_ratio": 115
+  },
+  {
+   "project": "clip2cart",
+   "turns": 201,
+   "cost_usd": 14.21,
+   "cost_per_turn_usd": 0.0707,
+   "input_tokens": 30861278,
+   "output_tokens": 155965,
+   "read_write_ratio": 198
+  },
+  {
+   "project": "current-affairs-digest",
+   "turns": 231,
+   "cost_usd": 14.0,
+   "cost_per_turn_usd": 0.0606,
+   "input_tokens": 30444101,
+   "output_tokens": 176395,
+   "read_write_ratio": 173
+  },
+  {
+   "project": "p1-ura",
+   "turns": 158,
+   "cost_usd": 7.26,
+   "cost_per_turn_usd": 0.0459,
+   "input_tokens": 14997555,
+   "output_tokens": 111466,
+   "read_write_ratio": 135
+  },
+  {
+   "project": "nh-worklfow",
+   "turns": 19,
+   "cost_usd": 1.02,
+   "cost_per_turn_usd": 0.0537,
+   "input_tokens": 1238975,
+   "output_tokens": 19180,
+   "read_write_ratio": 65
+  },
+  {
+   "project": "nh-mcp",
+   "turns": 33,
+   "cost_usd": 0.76,
+   "cost_per_turn_usd": 0.0232,
+   "input_tokens": 1003770,
+   "output_tokens": 9835,
+   "read_write_ratio": 102
+  },
+  {
+   "project": "nh-skills",
+   "turns": 15,
+   "cost_usd": 0.14,
+   "cost_per_turn_usd": 0.0095,
+   "input_tokens": 491500,
+   "output_tokens": 9363,
+   "read_write_ratio": 52
+  },
+  {
+   "project": "skills",
+   "turns": 16,
+   "cost_usd": 0.12,
+   "cost_per_turn_usd": 0.0074,
+   "input_tokens": 449268,
+   "output_tokens": 3475,
+   "read_write_ratio": 129
+  }
+ ],
+ "by_model": [
+  {
+   "model": "claude-opus-5",
+   "turns": 4530,
+   "cost_usd": 1030.32
+  },
+  {
+   "model": "claude-sonnet-5",
+   "turns": 4035,
+   "cost_usd": 487.11
+  },
+  {
+   "model": "claude-haiku-4-5",
+   "turns": 200,
+   "cost_usd": 4.13
+  }
+ ],
+ "counterfactuals": [
+  {
+   "model": "claude-sonnet-5",
+   "cost_usd": 1117.69,
+   "actual_usd": 1521.56,
+   "delta_percent": -26.5,
+   "caveat": "Prices a substitution on real token counts. It does not judge whether the substitute's answers would have been good enough."
+  },
+  {
+   "model": "claude-haiku-4-5",
+   "cost_usd": 372.56,
+   "actual_usd": 1521.56,
+   "delta_percent": -75.5,
+   "caveat": "Prices a substitution on real token counts. It does not judge whether the substitute's answers would have been good enough."
+  }
+ ],
+ "actually_paid": {
+  "period": "all_time",
+  "calls": 8765,
+  "list_price_value_usd": 1521.555179,
+  "subscription_cost_usd": 12.923453,
+  "subscription_usd_per_month": 20.0,
+  "span_days": 19.39,
+  "roi_multiple": 117.7,
+  "note": "list_price_value_usd is what these tokens would have cost through the metered API. No per-token charge occurred, this is value delivered, not money spent."
+ },
+ "generated_at": "2026-08-25T07:42:34+00:00"
+}

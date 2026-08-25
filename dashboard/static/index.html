@@ -1004,7 +1004,13 @@ function renderFindings(f) {
     `what the same tokens would have cost on a pay-per-use plan, which is the only way to compare ` +
     `one request against another.<br><br>` +
     `Read from my own session logs. Most of those ${compact(h.input_tokens)} input tokens are the ` +
-    `same code being re-read: ${cached}% came from cache.`;
+    `same code being re-read: ${cached}% came from cache.` +
+    (f.is_snapshot
+      ? `<br><br><b>Served from a snapshot.</b> The live ledger behind this page is currently ` +
+        `unreachable, so these figures come from a copy stored with the project rather than ` +
+        `being recomputed. They describe a finished period and do not change; only the ability ` +
+        `to recalculate them does. Taken ${esc((f.generated_at || "").slice(0, 10))}.`
+      : "");
 
   $("finding-lede").innerHTML =
     `For every word the AI wrote, it read <b>${esc(rw.ratio)}</b>. That is ` +

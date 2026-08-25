@@ -328,7 +328,25 @@ def findings_endpoint():
     # the same 4,399 rows for itself, which is free against local SQLite and
     # four network round-trips against Turso.
     turns = load_turns()
+
+    # An empty ledger is not necessarily a fresh install. It is also what a
+    # lapsed hosted database looks like, and the difference is invisible from
+    # here. Rather than serving zeroes and letting the page quietly delete its
+    # own study, fall back to a snapshot that ships with the repo.
+    #
+    # The measurement describes a finished period and does not change; only the
+    # ability to recompute it does. Losing a free-tier database should cost the
+    # site its live ledger, not the finding it exists to report.
+    if not turns:
+        snap = Path(__file__).resolve().parent.parent / "data" / "findings_snapshot.json"
+        if snap.exists():
+            try:
+                return {"is_snapshot": True, **json.loads(snap.read_text())}
+            except (OSError, ValueError):
+                pass
+
     data = compute_findings(events=turns).as_dict()
+    data["is_snapshot"] = False
     data["counterfactuals"] = [
         counterfactual(m, events=turns) for m in ("claude-sonnet-5", "claude-haiku-4-5")
     ]

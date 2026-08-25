@@ -77,6 +77,20 @@ status=$?
 "$ROOT/venv/bin/python" "$ROOT/scripts/ccost.py" --snapshot "$ROOT/data/ccost_snapshot.json" \
   && echo "refreshed data/ccost_snapshot.json (commit it to publish)"
 
+# The findings snapshot is what the site falls back to if its hosted database
+# ever lapses. Stale is survivable, absent is not, so it is refreshed here too.
+"$ROOT/venv/bin/python" - <<'SNAP'
+import datetime as dt, json, pathlib, sys
+sys.path.insert(0, ".")
+from dashboard.app import findings_endpoint
+d = findings_endpoint()
+if d.get("headline", {}).get("turns"):
+    d.pop("is_snapshot", None)
+    d["generated_at"] = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+    pathlib.Path("data/findings_snapshot.json").write_text(json.dumps(d, indent=1) + "\n")
+    print("refreshed data/findings_snapshot.json")
+SNAP
+
 if [ $status -ne 0 ]; then
   # A failed sync must not look like a successful one. The most common cause by
   # far is WATCHDOG_IMPORT_KEY here not matching the value set on the host.

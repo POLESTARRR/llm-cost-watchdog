@@ -610,3 +610,62 @@ def test_the_page_hardcodes_no_counts_that_can_drift(client):
         )
     # And the element it fills must exist for the fill to land anywhere.
     assert 'id="header-sub"' in html
+
+
+# --- surviving the database --------------------------------------------------
+
+
+def test_findings_falls_back_to_a_snapshot_when_the_ledger_is_gone(tmp_path, monkeypatch):
+    """An empty ledger is also what a lapsed hosted database looks like.
+
+    The two are indistinguishable from inside the app, and serving zeroes makes
+    the page delete its own study: the measurement disappears because a free
+    tier expired, not because anything about it stopped being true. It describes
+    a finished period; only the ability to recompute it is at risk.
+    """
+    from dashboard.app import findings_endpoint
+
+    monkeypatch.setenv("WATCHDOG_DB_PATH", str(tmp_path / "empty.db"))
+    monkeypatch.delenv("TURSO_DATABASE_URL", raising=False)
+
+    body = findings_endpoint()
+    assert body["is_snapshot"] is True, "study vanished when the ledger went away"
+    assert body["headline"]["turns"] > 0
+    assert body["headline"]["projects"] > 0
+    assert body.get("generated_at"), "a snapshot must be dated"
+
+
+def test_live_data_is_not_labelled_a_snapshot(tmp_path, monkeypatch):
+    """With real portfolio rows present, the snapshot must not be used.
+
+    The sample fixture is entirely `demo` data, and the portfolio query
+    deliberately excludes that, so it is legitimately empty and the fallback
+    fires. Seeding one real row is what actually distinguishes "the ledger is
+    gone" from "the ledger has nothing in it that counts".
+    """
+    from dashboard.app import findings_endpoint
+    from src.pricing import calculate_cost
+    from src.tracker import init_db, log_usage_many
+    from src.usage_schema import UsageEvent
+
+    monkeypatch.setenv("WATCHDOG_DB_PATH", str(tmp_path / "live.db"))
+    monkeypatch.delenv("TURSO_DATABASE_URL", raising=False)
+    init_db()
+    log_usage_many([UsageEvent(
+        model="claude-sonnet-5", provider="anthropic", project_tag="real",
+        input_tokens=100_000, output_tokens=1_000, cached_input_tokens=90_000,
+        cache_write_tokens=5_000,
+        cost_usd=calculate_cost("claude-sonnet-5", 100_000, 1_000, 90_000, 5_000),
+        latency_ms=100.0, success=True, source="subscription",
+    )])
+
+    body = findings_endpoint()
+    assert body["is_snapshot"] is False
+    assert body["headline"]["turns"] == 1
+
+
+def test_the_page_admits_when_it_is_serving_a_snapshot(client):
+    """Rendering stale figures as though they were live would be the lie."""
+    html = client.get("/").text
+    assert "Served from a snapshot" in html
+    assert "is_snapshot" in html
