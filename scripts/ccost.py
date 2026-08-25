@@ -186,6 +186,18 @@ def read_codex_sessions() -> list[dict]:
     return sessions
 
 
+def _copilot_ts(stamp: str | None, fallback: float) -> float:
+    """Turn Copilot's ISO turn timestamp into an epoch seconds value."""
+    if not stamp:
+        return fallback
+    try:
+        import datetime as _dt
+
+        return _dt.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return fallback
+
+
 def read_copilot_sessions() -> list[dict]:
     """GitHub Copilot CLI sessions, from its local SQLite store.
 
@@ -216,6 +228,7 @@ def read_copilot_sessions() -> list[dict]:
     finally:
         conn.close()
 
+    fallback = COPILOT_DB.stat().st_mtime
     for sid, cwd, n_turns, last_ts in rows:
         if not n_turns:
             continue
@@ -224,7 +237,12 @@ def read_copilot_sessions() -> list[dict]:
             "project": pathlib.Path(cwd).name if cwd else "copilot",
             "file": str(sid), "turns": [], "cost": 0.0, "priced": False,
             "message_count": n_turns,
-            "mtime": COPILOT_DB.stat().st_mtime,
+            # When each session actually happened, not when the file was last
+            # touched. Every session shares one database, so the file's mtime
+            # stamps them all identically and with the wrong date: here it read
+            # 1 August for sessions that ran on the 4th, which silently moves
+            # them in and out of every period filter.
+            "mtime": _copilot_ts(last_ts, fallback),
         })
     return sessions
 

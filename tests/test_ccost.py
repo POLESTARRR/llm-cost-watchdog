@@ -695,3 +695,60 @@ def test_the_warning_reaches_the_totals_commands(tmp_path, monkeypatch, capsys):
     ccost.cmd_projects([{"tool": "claude-code", "project": "p", "turns": [1000],
                          "cost": 1.0, "priced": True, "mtime": 1}])
     assert "Cursor" in capsys.readouterr().out
+
+
+def test_copilot_sessions_are_dated_individually(tmp_path, monkeypatch):
+    """Every Copilot session lives in one database file.
+
+    Using that file's mtime stamps them all identically and with the wrong date.
+    On the real store it read 1 August for sessions that ran on the 4th, which
+    silently moves them in and out of every period filter. The turns table
+    carries a real timestamp per turn; use it.
+    """
+    import datetime as dt
+    import sqlite3
+
+    db = tmp_path / "session-store.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT);
+        CREATE TABLE turns (id INTEGER PRIMARY KEY, session_id TEXT,
+                            user_message TEXT, timestamp TEXT);
+        INSERT INTO sessions VALUES ('a', '/x/early'), ('b', '/x/late');
+        INSERT INTO turns (session_id, user_message, timestamp) VALUES
+            ('a', 'hi', '2026-08-04T08:00:00.000Z'),
+            ('b', 'hi', '2026-08-20T08:00:00.000Z');
+    """)
+    conn.commit(); conn.close()
+    monkeypatch.setattr(ccost, "COPILOT_DB", db)
+
+    by = {s["project"]: s["mtime"] for s in ccost.read_copilot_sessions()}
+    assert by["early"] != by["late"], "both sessions got the same timestamp"
+    assert dt.datetime.fromtimestamp(by["early"], dt.timezone.utc).day == 4
+    assert dt.datetime.fromtimestamp(by["late"], dt.timezone.utc).day == 20
+
+
+def test_copilot_session_without_timestamps_falls_back(tmp_path, monkeypatch):
+    """A session with no usable timestamp must still appear, not vanish."""
+    import sqlite3
+
+    db = tmp_path / "s.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT);
+        CREATE TABLE turns (id INTEGER PRIMARY KEY, session_id TEXT,
+                            user_message TEXT, timestamp TEXT);
+        INSERT INTO sessions VALUES ('a', '/x/thing');
+        INSERT INTO turns (session_id, user_message, timestamp) VALUES ('a', 'hi', NULL);
+    """)
+    conn.commit(); conn.close()
+    monkeypatch.setattr(ccost, "COPILOT_DB", db)
+
+    got = ccost.read_copilot_sessions()
+    assert len(got) == 1 and got[0]["mtime"] > 0
+
+
+def test_copilot_timestamp_parser_is_defensive():
+    assert ccost._copilot_ts(None, 42.0) == 42.0
+    assert ccost._copilot_ts("not a date", 42.0) == 42.0
+    assert ccost._copilot_ts("2026-08-04T08:00:00.000Z", 42.0) > 42.0
