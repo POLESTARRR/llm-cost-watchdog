@@ -209,6 +209,14 @@ def read_copilot_sessions() -> list[dict]:
     These sessions are therefore carried with `priced: False` and counted as
     activity only. A cost tool that quietly invents the number it exists to
     report has failed at the one thing it is for.
+
+    Opened read-only, which is worth a note because the store runs in WAL mode
+    and its write-ahead log is routinely far larger than the main database file
+    (1MB against 4KB here). That looks like most of the content sitting
+    uncommitted where a read-only connection might not see it. Checked against a
+    full copy with the WAL checkpointed: identical counts, 4 sessions and 11
+    turns either way. SQLite reads the WAL fine here, and the size difference is
+    free pages rather than unread rows.
     """
     if not COPILOT_DB.exists():
         return []
