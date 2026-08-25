@@ -49,14 +49,52 @@ install_job() {
 </plist>
 PLIST_END
   launchctl unload "$PLIST" 2>/dev/null
-  launchctl load "$PLIST" && echo "installed: $LABEL (daily 20:00, and on login)" \
-    && echo "log: $LOG"
+  launchctl load "$PLIST" || { echo "launchctl refused to load $PLIST"; return 1; }
+  echo "installed: $LABEL (daily 20:00, and on login)"
+  echo "log: $LOG"
+
+  # RunAtLoad fires immediately, so a few seconds is enough to find out whether
+  # it can actually run. Reporting "installed" for a job that cannot start is
+  # the same failure as a dashboard reporting a number nobody was charged.
+  sleep 6
+  if grep -qi "operation not permitted" "$LOG" 2>/dev/null; then
+    cat <<'BLOCKED'
+
+  BUT IT CANNOT RUN YET, and this is a macOS restriction rather than a bug.
+
+  Background agents are denied access to ~/Desktop, ~/Documents and ~/Downloads
+  unless you grant it. This project lives under ~/Desktop, so launchd is refused
+  before the script starts. It runs perfectly when you run it yourself, because
+  your terminal already has that permission.
+
+  One-time fix:
+    System Settings -> Privacy & Security -> Full Disk Access
+    add /bin/bash   (click +, press Cmd-Shift-G, type /bin/bash)
+
+  Then: bash scripts/auto_sync.sh --install
+
+  Or avoid the permission entirely by moving this project out of ~/Desktop,
+  for example to ~/code/llm-cost-gateway, and reinstalling.
+
+  Until one of those, run it yourself whenever you want the site updated:
+    bash scripts/auto_sync.sh
+BLOCKED
+    return 1
+  fi
 }
 
 case "${1:-}" in
   --install)   install_job; exit $? ;;
   --uninstall) launchctl unload "$PLIST" 2>/dev/null; rm -f "$PLIST"; echo "removed $LABEL"; exit 0 ;;
-  --status)    launchctl list | grep -q "$LABEL" && echo "job is loaded" || echo "job is NOT loaded"
+  --status)    # Captured first, not piped into grep -q. `grep -q` exits the
+               # moment it matches, which SIGPIPEs launchctl, and under
+               # `set -o pipefail` that makes the whole pipeline report failure:
+               # the job was loaded and this said it was not.
+               listing="$(launchctl list 2>/dev/null || true)"
+               case "$listing" in
+                 *"$LABEL"*) echo "job is loaded" ;;
+                 *)          echo "job is NOT loaded" ;;
+               esac
                [ -f "$LOG" ] && echo "--- last run ---" && tail -n 15 "$LOG"; exit 0 ;;
 esac
 
