@@ -111,9 +111,10 @@ be on a list.
 `ccost` is the part you run daily. The finding above came out of a larger system
 that is also in this repo:
 
-- **[An OpenAI-compatible gateway](#6a-the-gateway-adoption-without-a-code-change)**
-  that routes each request to a model tier chosen from the prompt *and* the size
-  of the conversation carrying it. One environment variable, no code changes.
+- **[A gateway](#6a-the-gateway-adoption-without-a-code-change)** that sits between
+  your apps and the AI models they use, choosing a model to suit each request from
+  the prompt *and* the size of the conversation carrying it. Your app speaks the
+  same message format already, so pointing it here is one setting, not a rewrite.
 - **[A complexity classifier](#6c-complexity-routing-the-strategy-that-reads-the-prompt)**
   validated against 1,091 real requests whose outcomes are known, [including
   where it falls short](https://llmcostwatchdog.onrender.com).
@@ -282,7 +283,7 @@ python -m src.tracker --log-manual --model claude-opus-5 --cost 0.002 --project 
 # Weekly digest (also the cron entrypoint)
 python scripts/weekly_digest.py
 
-# Dashboard AND the OpenAI-compatible gateway, same process, http://localhost:8000
+# Dashboard AND the gateway, same process, http://localhost:8000
 python -m uvicorn dashboard.app:app --reload --port 8000
 
 # Prove the live path end to end with real calls (see §13)
@@ -462,7 +463,7 @@ exists.
 
 ## 6a. The gateway: adoption without a code change
 
-`src/gateway.py` mounts an OpenAI-compatible endpoint on the same FastAPI app as
+`src/gateway.py` mounts the gateway endpoint on the same FastAPI app as
 the dashboard, so one process gives you the proxy and the UI that reads what the
 proxy recorded.
 

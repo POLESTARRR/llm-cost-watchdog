@@ -437,15 +437,17 @@
 
   <div class="hero">
     <h2>How you would use it: change one setting, not your code.</h2>
-    <p><b>This does not send anything to OpenAI.</b> "OpenAI-compatible" names a
-       message format, not a company, in the same way "HTTP-compatible" names a
-       protocol rather than a website. Every LLM client already speaks that format,
-       so a server that also speaks it is a drop-in: you change one environment
-       variable and your app cannot tell the difference. Requests then go to
-       <b>Anthropic, Google, OpenAI, or a model running on your own machine</b>,
-       whichever tier the prompt needs. The API key's suffix becomes the project
-       name in the ledger, which is how per-project cost gets attributed without
-       the caller passing anything extra.</p>
+    <p>It is a small server that sits between your app and whichever AI company you
+       use. Your app sends its requests here instead. This reads each one, decides
+       which model should answer it, passes it along, and hands the reply back,
+       writing down what it cost on the way through.</p>
+    <p><b>Your app needs no changes.</b> It already speaks the same message format
+       this server does, the way every website speaks HTTP, so pointing it somewhere
+       else is a setting rather than a rewrite. Requests then go to
+       <b>Anthropic, Google, or a model running on your own machine</b>, whichever
+       tier the request needs. The name after <code>wd-</code> in the key becomes the
+       project name in the ledger, which is how per-project cost gets attributed
+       without your code passing anything extra.</p>
     <p style="margin-bottom:.5rem">Below is the entire integration. The first two lines
        are settings you export in your shell, not code you write. The third is a line
        your app already has, with one word changed.</p>
@@ -1268,8 +1270,9 @@ getJSON("/findings").then(f => {
     if (intro) intro.querySelector("h2").textContent = "The gateway";
     document.querySelector("header h1").textContent = "LLM Cost Gateway";
     document.querySelector("header .sub").textContent =
-      "An OpenAI-compatible gateway that routes each request on the complexity of the " +
-      "prompt, enforces budgets before money is spent, and records every call.";
+      "A small server that sits between your apps and the AI models they use: it " +
+      "picks a model to suit each request, stops you overspending, and records " +
+      "what every call cost.";
     return;
   }
   renderFindings(f);
