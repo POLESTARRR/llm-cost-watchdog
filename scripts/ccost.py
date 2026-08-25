@@ -393,11 +393,24 @@ def cmd_projects(sessions: list[dict]) -> None:
         b["read"] += sum(s["turns"])
         b["sessions"] += 1
 
-    print(f"\n{BOLD}Every project{RESET}  {DIM}list prices, all time{RESET}")
+    ranked = sorted(by.items(), key=lambda kv: -kv[1]["cost"])
+
+    # Everything, unless the list is genuinely unwieldy. This used to cut at 25
+    # silently, which hid exactly the projects worth noticing: a new one has
+    # almost no cost yet, so it sorts last and vanished on the day you started
+    # it. Truncation is now both generous and announced.
+    LIMIT = 40
+    shown, hidden = ranked[:LIMIT], ranked[LIMIT:]
+
+    print(f"\n{BOLD}Every project{RESET}  {DIM}list prices, all time · "
+          f"{len(ranked)} project{'s' if len(ranked) != 1 else ''}{RESET}")
     print(f"  {'project':28}{'cost':>10}{'turns':>8}{'sessions':>10}{'read':>9}")
-    for proj, b in sorted(by.items(), key=lambda kv: -kv[1]["cost"])[:25]:
+    for proj, b in shown:
         print(f"  {proj[:26]:28}{money(b['cost']):>10}{b['turns']:>8}"
               f"{b['sessions']:>10}{human(b['read']):>9}")
+    if hidden:
+        print(f"  {DIM}... and {len(hidden)} smaller "
+              f"({money(sum(b['cost'] for _, b in hidden))} between them){RESET}")
     total = sum(b["cost"] for b in by.values())
     print(f"  {'':28}{money(total):>10}  {DIM}total{RESET}")
 

@@ -596,3 +596,35 @@ def test_report_embeds_the_chart_when_sessions_are_long_enough():
     html = ccost.build_report(sessions)
     assert "<svg" in html
     assert "Context grows" in html
+
+
+def test_a_brand_new_project_is_not_hidden_by_truncation(tmp_path, monkeypatch, capsys):
+    """The projects list used to cut at 25 silently.
+
+    A project you started today has almost no cost yet, so it sorts last and
+    disappeared on exactly the day you would want to see it appear. Discovery
+    was working; the display was throwing the result away.
+    """
+    sessions = [
+        {"tool": "claude-code", "project": f"old-{i}", "turns": [50_000] * 5,
+         "cost": 100.0 - i, "priced": True, "mtime": i}
+        for i in range(30)
+    ]
+    sessions.append({"tool": "claude-code", "project": "BRAND-NEW", "turns": [1000],
+                     "cost": 0.01, "priced": True, "mtime": 999})
+
+    ccost.cmd_projects(sessions)
+    out = capsys.readouterr().out
+    assert "BRAND-NEW" in out, "a new project vanished off the end of the list"
+    assert "31 projects" in out, "the count should say how many there really are"
+
+
+def test_truncation_is_announced_when_it_happens(capsys):
+    many = [
+        {"tool": "claude-code", "project": f"p{i}", "turns": [1000],
+         "cost": float(100 - i), "priced": True, "mtime": i}
+        for i in range(50)
+    ]
+    ccost.cmd_projects(many)
+    out = capsys.readouterr().out
+    assert "and 10 smaller" in out, "cut the list without saying so"
