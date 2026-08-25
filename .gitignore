@@ -12,3 +12,8 @@ data/litellm_price_map.json
 .pytest_cache/
 *.egg-info/
 .DS_Store
+
+# Runtime log from the scheduled sync. Machine-specific, rewritten on every run,
+# and it was carrying this machine's absolute paths and permission errors into
+# the repo for anyone who cloned it.
+data/auto_sync.log
