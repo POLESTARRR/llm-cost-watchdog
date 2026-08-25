@@ -526,19 +526,46 @@ OTHER_ASSISTANTS = {
 }
 
 
+# Assistants that keep local state but publish no token accounting in it, so
+# there is nothing to read rather than something unread. Checked directly:
+# ~/Library/Application Support/Code/User/globalStorage/github.copilot-chat is
+# agent definitions and images, and state.vscdb's 190 rows contain no
+# totalTokens, promptTokens, input_tokens or usage field anywhere. The Copilot
+# CLI's own store is the same: user_message, assistant_response, timestamp.
+#
+# Worth naming separately from OTHER_ASSISTANTS. "ccost cannot read this yet"
+# invites someone to add support; "this vendor does not record it" tells them
+# not to bother, which is the more useful and more honest thing to say.
+SILENT_ASSISTANTS = {
+    "GitHub Copilot in VS Code": (
+        pathlib.Path.home() / "Library" / "Application Support" / "Code"
+        / "User" / "globalStorage" / "github.copilot-chat"
+    ),
+}
+
+
+def silent_assistants() -> list[str]:
+    """Installed assistants that record no token counts for anyone to read."""
+    return sorted(n for n, p in SILENT_ASSISTANTS.items() if p.exists())
+
+
 def unread_assistants() -> list[str]:
     """Assistants present on this machine that ccost cannot price."""
     return sorted(name for name, path in OTHER_ASSISTANTS.items() if path.exists())
 
 
 def _blind_spot_note() -> str:
+    parts = []
     found = unread_assistants()
-    if not found:
-        return ""
-    names = ", ".join(found)
-    return (f"\n  {DIM}Also installed here: {names}. ccost cannot read "
-            f"{'their' if len(found) > 1 else 'its'} logs, so anything done "
-            f"{'there' if len(found) > 1 else 'there'} is missing from these totals.{RESET}")
+    if found:
+        parts.append(f"  {DIM}Also installed here: {', '.join(found)}. ccost cannot read "
+                     f"{'their' if len(found) > 1 else 'its'} logs yet, so work done there "
+                     f"is missing from these totals.{RESET}")
+    silent = silent_assistants()
+    if silent:
+        parts.append(f"  {DIM}{', '.join(silent)}: records no token counts locally at all, "
+                     f"so no tool can price it. Counted nowhere, by anyone.{RESET}")
+    return ("\n" + "\n".join(parts)) if parts else ""
 
 
 def context_growth_curve(sessions: list[dict], min_turns: int = 20) -> list[int]:

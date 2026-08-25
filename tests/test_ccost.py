@@ -661,8 +661,31 @@ def test_reports_assistants_it_cannot_read(tmp_path, monkeypatch):
 
 def test_says_nothing_when_there_is_no_blind_spot(tmp_path, monkeypatch):
     monkeypatch.setattr(ccost, "OTHER_ASSISTANTS", {"Cursor": tmp_path / "absent"})
+    monkeypatch.setattr(ccost, "SILENT_ASSISTANTS", {"X": tmp_path / "absent"})
     assert ccost.unread_assistants() == []
+    assert ccost.silent_assistants() == []
     assert ccost._blind_spot_note() == ""
+
+
+def test_distinguishes_cannot_read_yet_from_records_nothing(tmp_path, monkeypatch):
+    """Two different problems that deserve two different sentences.
+
+    "ccost cannot read this yet" invites somebody to add support. "this vendor
+    records no token counts at all" tells them not to bother, which is both more
+    useful and more honest. Verified directly for Copilot in VS Code: its
+    globalStorage holds agent definitions and images, and state.vscdb carries no
+    totalTokens, promptTokens, input_tokens or usage field in any of its rows.
+    """
+    (tmp_path / "cursor").mkdir()
+    (tmp_path / "vscode-copilot").mkdir()
+    monkeypatch.setattr(ccost, "OTHER_ASSISTANTS", {"Cursor": tmp_path / "cursor"})
+    monkeypatch.setattr(ccost, "SILENT_ASSISTANTS",
+                        {"GitHub Copilot in VS Code": tmp_path / "vscode-copilot"})
+
+    note = ccost._blind_spot_note()
+    assert "cannot read" in note and "Cursor" in note
+    assert "records no token counts locally" in note
+    assert "Copilot in VS Code" in note
 
 
 def test_the_warning_reaches_the_totals_commands(tmp_path, monkeypatch, capsys):
