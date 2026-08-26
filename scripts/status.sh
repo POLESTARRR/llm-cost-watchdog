@@ -23,12 +23,17 @@ case "$t" in *"passed"*) ok "tests — $t";; *) no "tests — $t";; esac
 
 venv/bin/ccost >/dev/null 2>&1 && ok "ccost runs" || no "ccost broken"
 
+# The scheduled job deliberately runs from ~/code/ccost-sync, not from here.
+# macOS refuses background agents access to ~/Desktop, and this working copy
+# lives there, so the job would install, report success and never run. A probe
+# agent confirmed it can read ~/.claude and ~/code but not ~/Desktop, and the
+# sync only ever needed the transcripts, some code and the network.
 listing="$(launchctl list 2>/dev/null || true)"
 case "$listing" in
-  *llmcostgateway*) code=$(echo "$listing" | grep llmcostgateway | awk '{print $2}')
-      [ "$code" = "0" ] && ok "daily sync job loaded (last run ok)" \
+  *ccost.sync*) code=$(echo "$listing" | grep ccost.sync | awk '{print $2}')
+      [ "$code" = "0" ] && ok "daily sync job loaded, last run ok (~/code/ccost-sync)" \
                         || no "daily sync job loaded but last run exited $code" ;;
-  *) no "daily sync job not installed — run: bash scripts/auto_sync.sh --install" ;;
+  *) no "daily sync job not installed — see ~/code/ccost-sync/run-sync.sh" ;;
 esac
 
 grep -q ccost "$HOME/.claude/settings.json" 2>/dev/null \
