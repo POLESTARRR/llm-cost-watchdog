@@ -107,6 +107,11 @@ def main() -> int:
         print(f"cannot reach the remote database: {exc}")
         return 1
 
+    # If the table is empty, run() returns an int (affected_row_count), not a list.
+    # Treat that as "no rows found".
+    if isinstance(before, int):
+        before = []
+
     remote_sub = next((r for r in before if r[0] == "subscription"), None)
     remote_n = int(remote_sub[1]) if remote_sub else 0
     print(f"remote: {remote_n:,} subscription rows"

@@ -17,3 +17,8 @@ data/litellm_price_map.json
 # and it was carrying this machine's absolute paths and permission errors into
 # the repo for anyone who cloned it.
 data/auto_sync.log
+# Runtime logs from the health-check job and the daily sync driver. Same
+# reason as above: machine-specific, rewritten on every run.
+data/health_check.log
+data/.health_check_strikes
+sync.log
