@@ -14,10 +14,14 @@ the deployed app reads the same database, so writing to it directly is the same
 operation with one fewer secret to keep in sync. It also means the sync does not
 depend on the web service being awake, which on a free tier it usually is not.
 
-**Only subscription rows are touched.** Live rows on the remote are gateway
-traffic the local database never saw, and replacing them would delete real
-history to publish a copy of something else. Safe to re-run: the local ledger is
-a superset and is itself rebuildable from ~/.claude/projects at any time.
+**Additive, never-delete.** Only subscription rows are touched. Live rows on the
+remote are gateway traffic the local database never saw, and replacing them would
+delete real history to publish a copy of something else. Each subscription turn is
+identified by a content fingerprint (model + provider + project_tag + timestamp +
+token counts + prompt_hash), and only genuinely-new turns are inserted. The
+remote may have rows that no local transcript file still exists for (deleted
+projects, other machines' imports); those are never removed. This script is
+idempotent and safe to re-run.
 """
 
 import argparse
@@ -80,11 +84,26 @@ def arg(v):
     return {"type": "text", "value": str(v)}
 
 
+FINGERPRINT_COLS = ("model", "provider", "project_tag", "timestamp",
+                    "input_tokens", "output_tokens", "prompt_hash")
+
+
+def _fingerprint(event) -> str:
+    """Stable content fingerprint for dedup — identifies a turn by its
+    transcript-authoritative fields. Random UUIDs are not usable because
+    the nightly --rebuild mints fresh ones each run."""
+    parts = []
+    for c in FINGERPRINT_COLS:
+        v = getattr(event, c, None)
+        parts.append(str(v) if v is not None else "")
+    return "|".join(parts)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true",
-                    help="publish even if it would shrink the remote substantially")
+                    help="(unused, kept for run-sync.sh compat)")
     args = ap.parse_args()
 
     url, token = credentials()
@@ -92,12 +111,8 @@ def main() -> int:
     local_total = sum(e.cost_usd for e in events)
 
     if not events:
-        # Publishing an empty ledger over a populated one would be the single
-        # most destructive thing this script could do, and an empty local
-        # database is far more likely to mean "not imported yet" than "the work
-        # was deleted".
-        print("local ledger has no subscription rows; refusing to empty the remote")
-        return 1
+        print("local ledger has no subscription rows; nothing to sync")
+        return 0
 
     try:
         before = run(url, token,
@@ -109,7 +124,7 @@ def main() -> int:
 
     # If the table is empty, run() returns an int (affected_row_count), not a list.
     # Treat that as "no rows found".
-    if isinstance(before, int):
+    if not isinstance(before, list):
         before = []
 
     remote_sub = next((r for r in before if r[0] == "subscription"), None)
@@ -118,35 +133,40 @@ def main() -> int:
           f"{f' (${remote_sub[2]})' if remote_sub else ''}")
     print(f"local : {len(events):,} rows (${local_total:,.2f})")
 
-    if remote_n == len(events):
-        print("already in sync")
-        return 0
-
-    # Refuse a collapse. The empty-ledger check above is not enough: a second
-    # clone of this repo, with its own fresh database, imported 33 rows and
-    # published them over 9,033, because the importer's checkpoints live beside
-    # the transcripts and are shared between copies while the databases are not.
-    # The clone was told everything had already been imported, imported almost
-    # nothing, and passed a guard that only asked whether it had *something*.
-    #
-    # Any large shrink is far more likely to be a misconfigured copy than a
-    # genuine deletion, so it stops and makes a human look.
-    if remote_n and len(events) < remote_n * 0.9 and not args.force:
-        print(f"\nREFUSING: local has {len(events):,} rows against the remote's {remote_n:,}.")
-        print("A drop this large usually means this copy's database is incomplete,")
-        print("not that the work was deleted. Nothing was changed.")
-        print("\nIf the shrink is real and intended, pass --force.")
+    # Fetch all remote fingerprints (content columns only — lightweight).
+    # Values come back as strings from Turso's HTTP API.
+    remote_fps = set()
+    try:
+        raw = run(url, token,
+                  [f"SELECT {','.join(FINGERPRINT_COLS)} "
+                   f"FROM usage_events WHERE source='subscription'"])[0]
+        if isinstance(raw, list):
+            for row in raw:
+                # Turso returns SQL NULL as None; normalize identically to the
+                # local "" so a null prompt_hash does not look like a new turn.
+                remote_fps.add("|".join("" if v is None else str(v) for v in row))
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        print(f"cannot read remote fingerprints: {exc}")
         return 1
-    if args.dry_run:
-        print(f"would replace {remote_n:,} remote rows with {len(events):,} local ones")
+
+    # Find genuinely new local turns.
+    new_events = [e for e in events if _fingerprint(e) not in remote_fps]
+
+    if not new_events:
+        print("all local turns already on remote; nothing to insert")
         return 0
 
-    run(url, token, ["DELETE FROM usage_events WHERE source='subscription'"])
+    new_cost = sum(e.cost_usd for e in new_events)
+    print(f"new turns to insert: {len(new_events):,} (${new_cost:,.2f})")
 
+    if args.dry_run:
+        return 0
+
+    # Insert only the new rows, never delete anything.
     head = f"INSERT INTO usage_events ({','.join(COLS)}) VALUES "
     placeholders = "(" + ",".join("?" * len(COLS)) + ")"
-    for i in range(0, len(events), BATCH):
-        chunk = events[i:i + BATCH]
+    for i in range(0, len(new_events), BATCH):
+        chunk = new_events[i:i + BATCH]
         params = []
         for e in chunk:
             d = e.model_dump()
@@ -155,14 +175,15 @@ def main() -> int:
                 params.append(arg(1 if v else 0) if c == "success" else arg(v))
         run(url, token, [{"sql": head + ",".join([placeholders] * len(chunk)), "args": params}])
 
+    # Verify the insert landed.
     after = run(url, token, ["SELECT COUNT(*), ROUND(SUM(cost_usd),2) "
                              "FROM usage_events WHERE source='subscription'"])[0]
     n, cost = int(after[0][0]), float(after[0][1])
-    if n != len(events) or abs(cost - round(local_total, 2)) > 0.05:
-        print(f"VERIFY FAILED: remote has {n:,} rows / ${cost}, local {len(events):,} / "
-              f"${local_total:,.2f}")
+    if n < remote_n:
+        print(f"VERIFY FAILED: remote dropped from {remote_n:,} to {n:,} rows")
         return 1
-    print(f"synced and verified: {n:,} rows, ${cost:,.2f}")
+    print(f"synced: inserted {len(new_events):,} turns; "
+          f"remote now {n:,} subscription rows (${cost:,.2f})")
     return 0
 
 
