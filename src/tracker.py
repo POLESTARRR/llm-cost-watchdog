@@ -131,11 +131,31 @@ def _connect(db_path: str | None = None):
     # API) won't be visible until this process restarts, an accepted
     # tradeoff since normal writes all go through this same cached connection.
     turso_url = os.environ.get("TURSO_DATABASE_URL")
+    use_turso = False
     if turso_url:
         global _turso_conn
         if _turso_conn is None:
-            from src.turso_backend import TursoConnection
-            _turso_conn = TursoConnection(turso_url, os.environ["TURSO_AUTH_TOKEN"])
+            try:
+                from src.turso_backend import TursoConnection
+                import signal
+
+                def _turso_timeout(signum, frame):
+                    raise TimeoutError("Turso connection timed out after 30s")
+
+                prev = signal.signal(signal.SIGALRM, _turso_timeout)
+                signal.alarm(30)
+                try:
+                    _turso_conn = TursoConnection(turso_url, os.environ["TURSO_AUTH_TOKEN"])
+                finally:
+                    signal.alarm(0)
+                    signal.signal(signal.SIGALRM, prev)
+            except Exception as exc:
+                import sys
+                print(f"WARNING: Turso connection failed ({exc}), falling back to local SQLite", file=sys.stderr)
+        if _turso_conn is not None:
+            use_turso = True
+
+    if use_turso:
         conn = _turso_conn
         should_close = False
     else:
