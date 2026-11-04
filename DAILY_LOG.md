@@ -11,3 +11,6 @@ Added exception handling in `src/alerts.py` to prevent webhook dispatch failures
 
 ## 2026-11-04
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-04
+In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
