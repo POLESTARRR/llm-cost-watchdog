@@ -8,3 +8,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-04
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-04
+Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
