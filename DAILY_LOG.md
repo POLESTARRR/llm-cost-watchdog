@@ -26,3 +26,6 @@ In `src/cost_tracker.py`, token counting for streaming responses uses an approxi
 
 ## 2026-11-05
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-06
+Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
