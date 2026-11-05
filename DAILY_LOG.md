@@ -20,3 +20,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-05
 Refactored cost calculation logic in `src/pricing.py` to cache model pricing rates for 24 hours, reducing redundant lookups.
+
+## 2026-11-05
+In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
