@@ -29,3 +29,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-06
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-06
+The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
