@@ -74,3 +74,6 @@ Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm 
 
 ## 2026-11-15
 In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
+
+## 2026-11-15
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
