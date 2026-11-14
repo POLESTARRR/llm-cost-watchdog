@@ -59,3 +59,6 @@ Added exception handling in `src/alerts.py` to prevent webhook dispatch failures
 
 ## 2026-11-15
 In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
+
+## 2026-11-15
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
