@@ -41,3 +41,6 @@ In `src/aggregator.py`, sliding window calculations were updated to prevent memo
 
 ## 2026-11-14
 Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
+
+## 2026-11-14
+Refactored cost calculation logic in `src/pricing.py` to cache model pricing rates for 24 hours, reducing redundant lookups.
