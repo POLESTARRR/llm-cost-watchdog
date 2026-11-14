@@ -47,3 +47,6 @@ Refactored cost calculation logic in `src/pricing.py` to cache model pricing rat
 
 ## 2026-11-14
 The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
+
+## 2026-11-14
+In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
