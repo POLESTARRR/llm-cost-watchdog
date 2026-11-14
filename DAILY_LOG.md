@@ -35,3 +35,6 @@ The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV 
 
 ## 2026-11-06
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-14
+In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
