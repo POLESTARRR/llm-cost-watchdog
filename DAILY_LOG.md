@@ -44,3 +44,6 @@ Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff be
 
 ## 2026-11-14
 Refactored cost calculation logic in `src/pricing.py` to cache model pricing rates for 24 hours, reducing redundant lookups.
+
+## 2026-11-14
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
