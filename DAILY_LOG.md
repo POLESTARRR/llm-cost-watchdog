@@ -92,3 +92,6 @@ Added retry logic with exponential backoff in `src/providers/openai.py` for tran
 
 ## 2026-11-15
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-15
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
