@@ -80,3 +80,6 @@ Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff be
 
 ## 2026-11-15
 The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
+
+## 2026-11-15
+In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
