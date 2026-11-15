@@ -56,3 +56,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-15
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-15
+In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
