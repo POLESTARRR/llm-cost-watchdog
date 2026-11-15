@@ -104,3 +104,6 @@ In `src/models.py`, the CostEntry schema was extended to include a `region` fiel
 
 ## 2026-11-15
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-15
+Refactored cost calculation logic in `src/pricing.py` to cache model pricing rates for 24 hours, reducing redundant lookups.
