@@ -131,3 +131,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-16
 The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
+
+## 2026-11-16
+Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
