@@ -128,3 +128,6 @@ The budget alert threshold in `src/alerts.py` now supports percentage-based trig
 
 ## 2026-11-16
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-16
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
