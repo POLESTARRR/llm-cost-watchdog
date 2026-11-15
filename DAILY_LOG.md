@@ -134,3 +134,6 @@ The environment loader in `src/config.py` validates required API keys on startup
 
 ## 2026-11-16
 Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
+
+## 2026-11-16
+The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes during high-frequency telemetry logging without locking errors.
