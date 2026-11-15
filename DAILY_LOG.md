@@ -119,3 +119,6 @@ Refactored cost calculation logic in `src/pricing.py` to cache model pricing rat
 
 ## 2026-11-15
 The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes during high-frequency telemetry logging without locking errors.
+
+## 2026-11-16
+Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
