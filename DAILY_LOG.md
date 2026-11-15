@@ -164,3 +164,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-16
 Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
+
+## 2026-11-16
+In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
