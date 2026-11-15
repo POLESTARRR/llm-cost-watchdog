@@ -86,3 +86,6 @@ In `src/aggregator.py`, sliding window calculations were updated to prevent memo
 
 ## 2026-11-15
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-15
+Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
