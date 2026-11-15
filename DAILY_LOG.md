@@ -158,3 +158,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-16
 Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
+
+## 2026-11-16
+The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes during high-frequency telemetry logging without locking errors.
