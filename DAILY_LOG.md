@@ -155,3 +155,6 @@ In `src/cost_tracker.py`, token counting for streaming responses uses an approxi
 
 ## 2026-11-16
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-16
+Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
