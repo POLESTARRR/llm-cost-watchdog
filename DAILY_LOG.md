@@ -50,3 +50,6 @@ The environment loader in `src/config.py` validates required API keys on startup
 
 ## 2026-11-14
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-15
+In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
