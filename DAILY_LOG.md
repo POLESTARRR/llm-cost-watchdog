@@ -98,3 +98,6 @@ Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff be
 
 ## 2026-11-15
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-15
+In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
