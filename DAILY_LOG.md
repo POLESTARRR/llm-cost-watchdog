@@ -179,3 +179,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-16
 In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
+
+## 2026-11-16
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
