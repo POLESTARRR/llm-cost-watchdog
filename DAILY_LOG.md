@@ -185,3 +185,6 @@ The environment loader in `src/config.py` validates required API keys on startup
 
 ## 2026-11-16
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-16
+In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
