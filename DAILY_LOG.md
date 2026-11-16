@@ -182,3 +182,6 @@ In `src/models.py`, the CostEntry schema was extended to include a `region` fiel
 
 ## 2026-11-16
 The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
+
+## 2026-11-16
+The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
