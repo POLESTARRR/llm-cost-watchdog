@@ -122,3 +122,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-16
 Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
+
+## 2026-11-16
+The budget alert threshold in `src/alerts.py` now supports percentage-based triggers in addition to absolute dollar amounts.
