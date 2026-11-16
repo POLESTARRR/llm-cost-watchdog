@@ -176,3 +176,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-16
 The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes during high-frequency telemetry logging without locking errors.
+
+## 2026-11-16
+In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
