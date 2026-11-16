@@ -161,3 +161,6 @@ Added retry logic with exponential backoff in `src/providers/openai.py` for tran
 
 ## 2026-11-16
 The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes during high-frequency telemetry logging without locking errors.
+
+## 2026-11-16
+Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
