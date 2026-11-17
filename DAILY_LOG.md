@@ -233,3 +233,6 @@ The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV 
 
 ## 2026-11-17
 The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
+
+## 2026-11-17
+Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
