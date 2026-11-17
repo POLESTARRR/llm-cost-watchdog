@@ -230,3 +230,6 @@ In `src/cost_tracker.py`, token counting for streaming responses uses an approxi
 
 ## 2026-11-17
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-17
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
