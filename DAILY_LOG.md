@@ -239,3 +239,6 @@ Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm 
 
 ## 2026-11-17
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-17
+In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
