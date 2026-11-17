@@ -209,3 +209,6 @@ Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm 
 
 ## 2026-11-17
 The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
+
+## 2026-11-17
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
