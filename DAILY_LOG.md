@@ -221,3 +221,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-17
 In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
+
+## 2026-11-17
+Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
