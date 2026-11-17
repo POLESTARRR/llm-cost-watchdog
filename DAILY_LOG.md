@@ -248,3 +248,6 @@ The environment loader in `src/config.py` validates required API keys on startup
 
 ## 2026-11-18
 In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
+
+## 2026-11-18
+In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
