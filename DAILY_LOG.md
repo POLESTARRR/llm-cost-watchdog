@@ -260,3 +260,6 @@ In `src/aggregator.py`, sliding window calculations were updated to prevent memo
 
 ## 2026-11-18
 The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
+
+## 2026-11-18
+Refactored cost calculation logic in `src/pricing.py` to cache model pricing rates for 24 hours, reducing redundant lookups.
