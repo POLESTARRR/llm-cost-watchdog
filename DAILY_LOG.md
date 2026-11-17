@@ -257,3 +257,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-18
 In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
+
+## 2026-11-18
+The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
