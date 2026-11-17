@@ -224,3 +224,6 @@ In `src/models.py`, the CostEntry schema was extended to include a `region` fiel
 
 ## 2026-11-17
 Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
+
+## 2026-11-17
+In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
