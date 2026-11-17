@@ -218,3 +218,6 @@ In `src/models.py`, the CostEntry schema was extended to include a `region` fiel
 
 ## 2026-11-17
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-17
+In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
