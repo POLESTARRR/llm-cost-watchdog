@@ -296,3 +296,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-18
 In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
+
+## 2026-11-18
+Refactored cost calculation logic in `src/pricing.py` to cache model pricing rates for 24 hours, reducing redundant lookups.
