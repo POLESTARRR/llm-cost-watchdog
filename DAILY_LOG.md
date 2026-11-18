@@ -305,3 +305,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-19
 Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
+
+## 2026-11-19
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
