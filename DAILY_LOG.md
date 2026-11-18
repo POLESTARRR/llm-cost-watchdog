@@ -311,3 +311,6 @@ Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff be
 
 ## 2026-11-19
 Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
+
+## 2026-11-19
+The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
