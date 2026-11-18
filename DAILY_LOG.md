@@ -317,3 +317,6 @@ The cache invalidation logic in `src/telemetry.py` now respects provider-specifi
 
 ## 2026-11-19
 The budget alert threshold in `src/alerts.py` now supports percentage-based triggers in addition to absolute dollar amounts.
+
+## 2026-11-19
+The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
