@@ -326,3 +326,6 @@ In `src/aggregator.py`, sliding window calculations were updated to prevent memo
 
 ## 2026-11-19
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-19
+In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
