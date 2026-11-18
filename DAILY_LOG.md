@@ -272,3 +272,6 @@ The budget alert threshold in `src/alerts.py` now supports percentage-based trig
 
 ## 2026-11-18
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-18
+The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
