@@ -269,3 +269,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-18
 The budget alert threshold in `src/alerts.py` now supports percentage-based triggers in addition to absolute dollar amounts.
+
+## 2026-11-18
+Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
