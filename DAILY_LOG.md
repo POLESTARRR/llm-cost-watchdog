@@ -275,3 +275,6 @@ Added exception handling in `src/alerts.py` to prevent webhook dispatch failures
 
 ## 2026-11-18
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-18
+Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
