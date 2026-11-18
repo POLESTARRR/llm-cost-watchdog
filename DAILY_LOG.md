@@ -335,3 +335,6 @@ Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily 
 
 ## 2026-11-19
 Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
+
+## 2026-11-19
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
