@@ -329,3 +329,6 @@ The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV 
 
 ## 2026-11-19
 In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
+
+## 2026-11-19
+Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
