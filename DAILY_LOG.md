@@ -254,3 +254,6 @@ In `src/models.py`, the CostEntry schema was extended to include a `region` fiel
 
 ## 2026-11-18
 The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes during high-frequency telemetry logging without locking errors.
+
+## 2026-11-18
+In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
