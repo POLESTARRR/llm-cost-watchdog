@@ -353,3 +353,6 @@ In `src/cost_tracker.py`, token counting for streaming responses uses an approxi
 
 ## 2026-11-19
 Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
+
+## 2026-11-19
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
