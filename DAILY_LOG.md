@@ -359,3 +359,6 @@ The environment loader in `src/config.py` validates required API keys on startup
 
 ## 2026-11-19
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-19
+The budget alert threshold in `src/alerts.py` now supports percentage-based triggers in addition to absolute dollar amounts.
