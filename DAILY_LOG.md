@@ -350,3 +350,6 @@ The environment loader in `src/config.py` validates required API keys on startup
 
 ## 2026-11-19
 In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
+
+## 2026-11-19
+Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
