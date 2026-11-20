@@ -380,3 +380,6 @@ The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV 
 
 ## 2026-11-20
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-20
+In `src/models.py`, the CostEntry schema was extended to include a `region` field for multi-region cost breakdowns.
