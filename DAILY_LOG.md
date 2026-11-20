@@ -368,3 +368,6 @@ The budget alert threshold in `src/alerts.py` now supports percentage-based trig
 
 ## 2026-11-20
 Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
+
+## 2026-11-20
+Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
