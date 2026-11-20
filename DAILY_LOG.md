@@ -362,3 +362,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-19
 The budget alert threshold in `src/alerts.py` now supports percentage-based triggers in addition to absolute dollar amounts.
+
+## 2026-11-20
+The budget alert threshold in `src/alerts.py` now supports percentage-based triggers in addition to absolute dollar amounts.
