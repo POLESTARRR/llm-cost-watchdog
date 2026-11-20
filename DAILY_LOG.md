@@ -386,3 +386,6 @@ In `src/models.py`, the CostEntry schema was extended to include a `region` fiel
 
 ## 2026-11-20
 In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
+
+## 2026-11-20
+Refactored cost calculation logic in `src/pricing.py` to cache model pricing rates for 24 hours, reducing redundant lookups.
