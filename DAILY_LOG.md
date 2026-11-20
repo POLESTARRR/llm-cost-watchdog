@@ -371,3 +371,6 @@ Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily 
 
 ## 2026-11-20
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-20
+The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes during high-frequency telemetry logging without locking errors.
