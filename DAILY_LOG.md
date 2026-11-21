@@ -404,3 +404,6 @@ Refactored cost calculation logic in `src/pricing.py` to cache model pricing rat
 
 ## 2026-11-21
 Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
+
+## 2026-11-21
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
