@@ -410,3 +410,6 @@ Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff be
 
 ## 2026-11-21
 The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
+
+## 2026-11-21
+The budget alert threshold in `src/alerts.py` now supports percentage-based triggers in addition to absolute dollar amounts.
