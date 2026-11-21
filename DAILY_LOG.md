@@ -407,3 +407,6 @@ Added retry logic with exponential backoff in `src/providers/openai.py` for tran
 
 ## 2026-11-21
 Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
+
+## 2026-11-21
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
