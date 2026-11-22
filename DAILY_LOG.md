@@ -413,3 +413,6 @@ The environment loader in `src/config.py` validates required API keys on startup
 
 ## 2026-11-21
 The budget alert threshold in `src/alerts.py` now supports percentage-based triggers in addition to absolute dollar amounts.
+
+## 2026-11-22
+Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
