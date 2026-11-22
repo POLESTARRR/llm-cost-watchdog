@@ -416,3 +416,6 @@ The budget alert threshold in `src/alerts.py` now supports percentage-based trig
 
 ## 2026-11-22
 Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
+
+## 2026-11-22
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
