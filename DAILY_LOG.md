@@ -425,3 +425,6 @@ Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff be
 
 ## 2026-11-22
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-22
+In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
