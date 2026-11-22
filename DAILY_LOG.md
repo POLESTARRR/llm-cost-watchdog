@@ -422,3 +422,6 @@ Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff be
 
 ## 2026-11-22
 Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
+
+## 2026-11-22
+Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
