@@ -428,3 +428,6 @@ Added exception handling in `src/alerts.py` to prevent webhook dispatch failures
 
 ## 2026-11-22
 In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
+
+## 2026-11-23
+In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
