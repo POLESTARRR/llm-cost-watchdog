@@ -449,3 +449,6 @@ Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm 
 
 ## 2026-11-23
 The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes during high-frequency telemetry logging without locking errors.
+
+## 2026-11-23
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
