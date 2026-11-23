@@ -437,3 +437,6 @@ The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV 
 
 ## 2026-11-23
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-23
+Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
