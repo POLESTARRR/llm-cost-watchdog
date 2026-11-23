@@ -443,3 +443,6 @@ Added retry logic with exponential backoff in `src/providers/openai.py` for tran
 
 ## 2026-11-23
 In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
+
+## 2026-11-23
+Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
