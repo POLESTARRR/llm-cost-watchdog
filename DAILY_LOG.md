@@ -440,3 +440,6 @@ The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV 
 
 ## 2026-11-23
 Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
+
+## 2026-11-23
+In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
