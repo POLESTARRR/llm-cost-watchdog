@@ -479,3 +479,6 @@ Added retry logic with exponential backoff in `src/providers/openai.py` for tran
 
 ## 2026-11-24
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-24
+Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
