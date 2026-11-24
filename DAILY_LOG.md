@@ -482,3 +482,6 @@ The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV 
 
 ## 2026-11-24
 Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
+
+## 2026-11-24
+In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
