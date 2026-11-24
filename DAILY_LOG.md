@@ -470,3 +470,6 @@ Added retry logic with exponential backoff in `src/providers/openai.py` for tran
 
 ## 2026-11-24
 Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
+
+## 2026-11-24
+The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
