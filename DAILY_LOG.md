@@ -467,3 +467,6 @@ The budget alert threshold in `src/alerts.py` now supports percentage-based trig
 
 ## 2026-11-24
 Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
+
+## 2026-11-24
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
