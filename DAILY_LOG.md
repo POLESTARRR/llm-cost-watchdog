@@ -485,3 +485,6 @@ Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm 
 
 ## 2026-11-24
 In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
+
+## 2026-11-25
+The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
