@@ -491,3 +491,6 @@ The cache invalidation logic in `src/telemetry.py` now respects provider-specifi
 
 ## 2026-11-25
 Updated the rate limiter in `src/middleware.py` to use a token bucket algorithm instead of fixed window counters for smoother throttling.
+
+## 2026-11-25
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
