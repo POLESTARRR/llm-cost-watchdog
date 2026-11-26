@@ -500,3 +500,6 @@ Added exception handling in `src/alerts.py` to prevent webhook dispatch failures
 
 ## 2026-11-25
 The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
+
+## 2026-11-26
+In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
