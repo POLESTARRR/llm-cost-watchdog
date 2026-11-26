@@ -503,3 +503,6 @@ The cache invalidation logic in `src/telemetry.py` now respects provider-specifi
 
 ## 2026-11-26
 In `src/aggregator.py`, sliding window calculations were updated to prevent memory accumulation during long-running daemon execution.
+
+## 2026-11-26
+The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
