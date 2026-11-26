@@ -506,3 +506,6 @@ In `src/aggregator.py`, sliding window calculations were updated to prevent memo
 
 ## 2026-11-26
 The CLI command in `ccost_cli.py` now supports outputting cost summaries in CSV format for easier spreadsheet export.
+
+## 2026-11-26
+In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
