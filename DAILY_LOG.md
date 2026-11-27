@@ -551,3 +551,6 @@ Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily 
 
 ## 2026-11-27
 Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
+
+## 2026-11-27
+Refactored cost calculation logic in `src/pricing.py` to cache model pricing rates for 24 hours, reducing redundant lookups.
