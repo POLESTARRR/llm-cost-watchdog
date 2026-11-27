@@ -539,3 +539,6 @@ In `src/cost_tracker.py`, token counting for streaming responses uses an approxi
 
 ## 2026-11-27
 The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
+
+## 2026-11-27
+Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
