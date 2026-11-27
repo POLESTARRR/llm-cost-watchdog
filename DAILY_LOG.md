@@ -524,3 +524,6 @@ In `src/cost_tracker.py`, token counting for streaming responses uses an approxi
 
 ## 2026-11-27
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-27
+In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
