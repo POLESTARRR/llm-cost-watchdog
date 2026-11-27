@@ -545,3 +545,6 @@ Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily 
 
 ## 2026-11-27
 In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
+
+## 2026-11-27
+Optimized SQL indexing on the `requests` table in `src/db.py` to speed up daily cost aggregation queries.
