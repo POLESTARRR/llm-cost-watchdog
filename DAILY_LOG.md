@@ -527,3 +527,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-27
 In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
+
+## 2026-11-27
+Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
