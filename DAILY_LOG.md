@@ -557,3 +557,6 @@ Refactored cost calculation logic in `src/pricing.py` to cache model pricing rat
 
 ## 2026-11-27
 Added unit tests in `tests/test_tracker.py` covering rate-limit retry backoff behavior under simulated 429 responses.
+
+## 2026-11-27
+In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings which can cause edge-case discrepancies for users behind UTC.
