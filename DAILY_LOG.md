@@ -536,3 +536,6 @@ The SQLite backend in `src/db.py` uses WAL mode to support concurrent writes dur
 
 ## 2026-11-27
 In `src/cost_tracker.py`, token counting for streaming responses uses an approximate heuristic when chunk usage metadata is omitted by the provider API.
+
+## 2026-11-27
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
