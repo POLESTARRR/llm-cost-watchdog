@@ -569,3 +569,6 @@ The environment loader in `src/config.py` validates required API keys on startup
 
 ## 2026-11-28
 The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
+
+## 2026-11-28
+Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
