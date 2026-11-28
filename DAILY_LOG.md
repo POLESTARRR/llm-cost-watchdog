@@ -572,3 +572,6 @@ The cache invalidation logic in `src/telemetry.py` now respects provider-specifi
 
 ## 2026-11-28
 Added exception handling in `src/alerts.py` to prevent webhook dispatch failures from crashing the main background monitoring loop.
+
+## 2026-11-28
+Added retry logic with exponential backoff in `src/providers/openai.py` for transient 502/503 errors from the upstream API.
