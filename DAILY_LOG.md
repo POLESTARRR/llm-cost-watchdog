@@ -563,3 +563,6 @@ In `dashboard/app.py`, date range filtering uses timezone-naive ISO strings whic
 
 ## 2026-11-28
 The cache invalidation logic in `src/telemetry.py` now respects provider-specific TTL headers instead of using a hardcoded 300-second window.
+
+## 2026-11-28
+The environment loader in `src/config.py` validates required API keys on startup rather than deferring failure to the first telemetry call.
